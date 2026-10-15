@@ -3,70 +3,110 @@ const Io = std.Io;
 const Dir = std.Io.Dir;
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
+const clap = @import("clap");
 const zigfmt = @import("zigfmt");
 const Config = zigfmt.Config;
 const Gitignore = @import("Gitignore.zig");
+const version = @import("version").version;
 
 test {
     _ = Gitignore;
 }
 
-const usage =
-    \\Usage: zigfmt [options] [file|dir]...
+const cli: clap.ArgDescriptor = .{
+    .name = "zigfmt",
+    .description =
+    \\A configurable formatter for Zig.
     \\
     \\Formats .zig and .zon files in place. Directories are searched
-    \\recursively, skipping hidden directories, zig-out, zig-cache and what
-    \\.gitignore files ignore. Files named on the command line are always
-    \\formatted.
+    \\recursively, skipping hidden directories, zig-out, zig-pkg, zig-cache
+    \\and what .gitignore files ignore. Files named on the command line are
+    \\always formatted.
     \\
     \\Each file uses the nearest .zigfmt.zon found in its directory or the
     \\directories above it, up to the project root (the first directory with a
     \\build.zig.zon or build.zig). Standard input uses the current directory.
-    \\
-    \\Options:
-    \\  --stdin                  Format stdin and write the result to stdout
-    \\  --zon                    Parse stdin as ZON (with --stdin)
-    \\  --check                  List unformatted files and exit with 1
-    \\                           instead of rewriting them
-    \\  --config <path>          Use this config file for every file
-    \\  --no-config              Ignore config files
-    \\  --print-config [path]    Print the config used for a file or directory
-    \\                           (default: the current directory) and exit
-    \\  -h, --help               Print this help and exit
-    \\
-    \\Config overrides (see README.md):
-    \\
-++ override_usage;
-
-const override_usage = blk: {
-    var text: []const u8 = "";
-    for (std.meta.fieldNames(Config)) |name| {
-        const flag = "  " ++ flagName(name) ++ " " ++ valueHint(@FieldType(Config, name));
-        text = text ++ flag ++ "\n";
-    }
-    break :blk text;
+    \\The options from --indent-width on override config files.
+    ,
+    .version = version,
+    .expectArgs = &.{"[file|dir]..."},
+    .minNbArgs = 0,
+    // Holds the file arguments, 16 bytes each.
+    .bufferSize = 128 * 1024,
+    .options = &(base_options ++ override_options),
 };
 
-fn flagName(comptime field: []const u8) []const u8 {
+const base_options = [_]clap.OptionDescription{
+    .{ .short = null, .long = "stdin", .help = "Format stdin and write the result to stdout" },
+    .{ .short = null, .long = "zon", .help = "Parse stdin as ZON (with --stdin)" },
+    .{ .short = null, .long = "check", .help = "List unformatted files and exit with 1 instead of rewriting them" },
+    .{ .short = null, .long = "config", .arg = .{ .name = "path", .type = []const u8 }, .help = "Use this config file for every file" },
+    .{ .short = null, .long = "no-config", .help = "Ignore config files" },
+    .{ .short = null, .long = "print-config", .help = "Print the config used for the first file or directory (default: the current directory) and exit" },
+    .{ .short = null, .long = "version", .help = "Print the version and exit" },
+    // Handled by clap, listed for the help.
+    .{ .short = "h", .long = "help", .help = "Print this help and exit" },
+};
+
+/// One option per config field: `--line-width` for `line_width`.
+const override_options = options: {
+    const names = std.meta.fieldNames(Config);
+    var options: [names.len]clap.OptionDescription = undefined;
+    for (names, &options) |name, *option| option.* = .{
+        .short = null,
+        .long = optionName(name),
+        .arg = .{ .name = valueHint(@FieldType(Config, name)), .type = []const u8 },
+        .help = @field(override_help, name) ++ " (default: " ++ defaultText(name) ++ ")",
+    };
+    const final = options;
+    break :options final;
+};
+
+/// Help for the options that override config settings. Every `Config`
+/// field needs one.
+const override_help = .{
+    .indent_width = "Columns per indentation level, ignored with tabs",
+    .indent_style = "Spaces, or one tab per level",
+    .line_ending = "Line endings",
+    .max_blank_lines = "Longest run of empty lines kept",
+    .line_width = "Split lists that don't fit in this many columns",
+    .trailing_commas = "End split lists with a comma",
+    .space_inside_braces = "Write .{ a, b } rather than .{a, b}",
+    .range_spacing = "Spaces around .. and ... (zig_fmt: only in slices with compound operands)",
+    .sort_imports = "Sort runs of top-level @imports by path",
+    .nested_imports = "Report @import inside functions, tests and comptime blocks as errors",
+};
+
+fn optionName(comptime field: []const u8) []const u8 {
     comptime {
         var name: [field.len]u8 = field[0..field.len].*;
         std.mem.replaceScalar(u8, &name, '_', '-');
         const final = name;
-        return "--" ++ &final;
+        return &final;
     }
 }
 
 fn valueHint(comptime T: type) []const u8 {
     return switch (@typeInfo(T)) {
-        .int => "<n>",
-        .bool => "<true|false>",
+        .int => "n",
+        .bool => "true|false",
         .@"enum" => blk: {
-            var hint: []const u8 = "<";
+            var hint: []const u8 = "";
             for (std.meta.fieldNames(T), 0..) |name, i| {
                 hint = hint ++ (if (i == 0) "" else "|") ++ name;
             }
-            break :blk hint ++ ">";
+            break :blk hint;
         },
+        else => @compileError("unsupported config field type"),
+    };
+}
+
+fn defaultText(comptime field: []const u8) []const u8 {
+    const value = @field(Config.default, field);
+    return switch (@typeInfo(@TypeOf(value))) {
+        .int => std.fmt.comptimePrint("{d}", .{value}),
+        .bool => if (value) "true" else "false",
+        .@"enum" => @tagName(value),
         else => @compileError("unsupported config field type"),
     };
 }
@@ -91,7 +131,9 @@ const Context = struct {
 pub fn main(init: std.process.Init) !u8 {
     const gpa = init.gpa;
     const io = init.io;
-    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    // Exits after printing the help or a usage error.
+    const args = clap.parser(cli).parse(try init.minimal.args.toSlice(init.arena.allocator()));
+    const paths = args.arguments.items;
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
@@ -100,49 +142,20 @@ pub fn main(init: std.process.Init) !u8 {
     defer stdout_writer.interface.flush() catch {};
     defer stderr_writer.interface.flush() catch {};
 
-    var use_stdin = false;
-    var stdin_mode: Ast.Mode = .zig;
-    var check = false;
-    var print_config = false;
-    var config_path: ?[]const u8 = null;
-    var no_config = false;
-    var overrides: Overrides = .{};
-    var paths: std.ArrayList([]const u8) = .empty;
-    defer paths.deinit(gpa);
-
-    var i: usize = 1;
-    args: while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (!std.mem.startsWith(u8, arg, "-")) {
-            try paths.append(gpa, arg);
-        } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            try stdout_writer.interface.writeAll(usage);
-            return 0;
-        } else if (std.mem.eql(u8, arg, "--stdin")) {
-            use_stdin = true;
-        } else if (std.mem.eql(u8, arg, "--zon")) {
-            stdin_mode = .zon;
-        } else if (std.mem.eql(u8, arg, "--check")) {
-            check = true;
-        } else if (std.mem.eql(u8, arg, "--print-config")) {
-            print_config = true;
-        } else if (std.mem.eql(u8, arg, "--no-config")) {
-            no_config = true;
-        } else if (std.mem.eql(u8, arg, "--config")) {
-            config_path = nextArg(args, &i);
-        } else {
-            inline for (comptime std.meta.fieldNames(Config)) |name| {
-                if (std.mem.eql(u8, arg, comptime flagName(name))) {
-                    const value = nextArg(args, &i);
-                    @field(overrides.values, name) = parseValue(@FieldType(Config, name), arg, value);
-                    overrides.set.insert(@field(std.meta.FieldEnum(Config), name));
-                    continue :args;
-                }
-            }
-            fatalUsage("unrecognized option '{s}'", .{arg});
-        }
+    if (args.getSwitch("version")) {
+        try stdout_writer.interface.print("zigfmt {s}\n", .{version});
+        return 0;
     }
 
+    var overrides: Overrides = .{};
+    inline for (comptime std.meta.fieldNames(Config)) |name| {
+        const option = comptime optionName(name);
+        if (try args.getOption([]const u8, option)) |text| {
+            @field(overrides.values, name) = parseValue(@FieldType(Config, name), text) orelse
+                fatalUsage("invalid value for --{s}: {s}", .{ option, text });
+            overrides.set.insert(@field(std.meta.FieldEnum(Config), name));
+        }
+    }
     // Settings are validated one by one, so problems found later come from
     // config files.
     var overridden: Config = .default;
@@ -154,7 +167,7 @@ pub fn main(init: std.process.Init) !u8 {
         .io = io,
         .stdout = &stdout_writer.interface,
         .stderr = &stderr_writer.interface,
-        .check = check,
+        .check = args.getSwitch("check"),
         .configs = .{
             .gpa = gpa,
             .io = io,
@@ -163,31 +176,38 @@ pub fn main(init: std.process.Init) !u8 {
         },
     };
     defer ctx.configs.deinit();
-    if (no_config) {
+    if (args.getSwitch("no-config")) {
         ctx.configs.fixed = ctx.configs.resolve(null, "--no-config");
-    } else if (config_path) |path| {
+    } else if (try args.getOption([]const u8, "config")) |path| {
         const config = try loadConfig(gpa, io, path) orelse std.process.fatal("{s}: config file not found", .{path});
         ctx.configs.fixed = ctx.configs.resolve(config, path);
     }
 
-    if (print_config) {
-        const config = if (paths.items.len == 0)
+    if (args.getSwitch("print-config")) {
+        const config = if (paths.len == 0)
             try ctx.configs.forDir(ctx.configs.cwd)
         else
-            try ctx.configs.forPath(paths.items[0]);
+            try ctx.configs.forPath(paths[0]);
         try std.zon.stringify.serialize(config, .{}, ctx.stdout);
         try ctx.stdout.writeByte('\n');
         return 0;
     }
 
-    if (use_stdin) {
-        if (paths.items.len != 0) fatalUsage("cannot combine --stdin with file arguments", .{});
-        try formatStdin(&ctx, stdin_mode);
+    if (args.getSwitch("stdin")) {
+        if (paths.len != 0) fatalUsage("cannot combine --stdin with file arguments", .{});
+        try formatStdin(&ctx, if (args.getSwitch("zon")) .zon else .zig);
     } else {
-        if (paths.items.len == 0) fatalUsage("expected at least one file or directory", .{});
-        for (paths.items) |path| try formatPath(&ctx, path);
+        if (paths.len == 0) fatalUsage("expected at least one file or directory", .{});
+        for (paths) |path| try formatPath(&ctx, path);
     }
     return @intFromBool(ctx.any_error or ctx.any_unformatted);
+}
+
+/// Reports a usage error like clap does.
+fn fatalUsage(comptime format: []const u8, args: anytype) noreturn {
+    std.debug.print("error: " ++ format ++ "\n", args);
+    clap.printUsage(std.heap.page_allocator, cli);
+    std.process.exit(1);
 }
 
 /// Command line settings, which take precedence over config files.
@@ -204,24 +224,13 @@ const Overrides = struct {
     }
 };
 
-fn parseValue(comptime T: type, option: []const u8, value: []const u8) T {
-    const parsed: ?T = switch (@typeInfo(T)) {
-        .int => std.fmt.parseInt(T, value, 10) catch null,
-        .bool => if (std.mem.eql(u8, value, "true")) true else if (std.mem.eql(u8, value, "false")) false else null,
-        .@"enum" => std.meta.stringToEnum(T, value),
+fn parseValue(comptime T: type, text: []const u8) ?T {
+    return switch (@typeInfo(T)) {
+        .int => std.fmt.parseInt(T, text, 10) catch null,
+        .bool => if (std.mem.eql(u8, text, "true")) true else if (std.mem.eql(u8, text, "false")) false else null,
+        .@"enum" => std.meta.stringToEnum(T, text),
         else => comptime unreachable,
     };
-    return parsed orelse fatalUsage("invalid value for '{s}': '{s}'", .{ option, value });
-}
-
-fn nextArg(args: []const [:0]const u8, i: *usize) []const u8 {
-    if (i.* + 1 >= args.len) fatalUsage("missing value for '{s}'", .{args[i.*]});
-    i.* += 1;
-    return args[i.*];
-}
-
-fn fatalUsage(comptime format: []const u8, args: anytype) noreturn {
-    std.process.fatal(format ++ "\nsee 'zigfmt --help'", args);
 }
 
 /// Finds the config for each file, caching the result for each directory.
@@ -424,7 +433,8 @@ fn addGitignore(ctx: *Context, ignore: *Gitignore, dir: Dir, sub_path: []const u
 }
 
 fn skipDir(name: []const u8) bool {
-    return name[0] == '.' or std.mem.eql(u8, name, "zig-out") or std.mem.eql(u8, name, "zig-cache");
+    return name[0] == '.' or std.mem.eql(u8, name, "zig-out") or std.mem.eql(u8, name, "zig-pkg") or
+        std.mem.eql(u8, name, "zig-cache");
 }
 
 fn modeFromPath(path: []const u8) ?Ast.Mode {

@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # History and tags, for the commit in `zigfmt --version`.
+          fetch-depth: 0
+      # Installs build.zig.zon's minimum_zig_version.
+      - uses: mlugg/setup-zig@v2
+      - run: zig build test
+
+      - name: Corpus (Zig's lib/)
+        if: runner.os == 'Linux'
+        run: |
+          lib_dir=$(zig env | sed -n 's/^ *\.lib_dir = "\(.*\)",$/\1/p')
+          zig build corpus -Doptimize=ReleaseSafe -- "$lib_dir"
+
+      - name: Version
+        if: runner.os == 'Linux'
+        run: |
+          zig build
+          zig-out/bin/zigfmt --version
+
+      # Only tags made by release.sh are released: the version in
+      # build.zig.zon, on a clean checkout of the tagged commit.
+      - name: Check that the tag is the version
+        if: runner.os == 'Linux' && github.ref_type == 'tag'
+        run: |
+          case "$(zig-out/bin/zigfmt --version)" in
+            "zigfmt ${GITHUB_REF_NAME}+"*) ;;
+            *) echo "::error::tag ${GITHUB_REF_NAME} is not the version in build.zig.zon"; exit 1 ;;
+          esac
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-linux, name: linux-x86_64, archive: tar }
+          - { target: aarch64-linux, name: linux-aarch64, archive: tar }
+          - { target: x86_64-macos, name: macos-x86_64, archive: tar }
+          - { target: aarch64-macos, name: macos-aarch64, archive: tar }
+          - { target: x86_64-windows, name: windows-x86_64, archive: zip }
+          - { target: aarch64-windows, name: windows-aarch64, archive: zip }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: mlugg/setup-zig@v2
+      - run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+      - name: Package
+        run: |
+          dir=zigfmt-${{ matrix.name }}
+          exe=zigfmt
+          if [ "${{ matrix.archive }}" = "zip" ]; then exe=zigfmt.exe; fi
+          mkdir "$dir"
+          cp "zig-out/bin/$exe" README.md CHANGELOG.md LICENSE LICENSE-ZIG "$dir"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip -r "$dir.zip" "$dir"
+          else
+            tar czf "$dir.tar.gz" "$dir"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zigfmt-${{ matrix.name }}
+          path: zigfmt-${{ matrix.name }}.*
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Checksums
+        run: sha256sum zigfmt-*.tar.gz zigfmt-*.zip > SHA256SUMS
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          awk -v tag="${GITHUB_REF_NAME}" '
+            $0 ~ "^## \\[" tag "\\]" { on=1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "No CHANGELOG section for ${GITHUB_REF_NAME}." > RELEASE_NOTES.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          files: |
+            zigfmt-*.tar.gz
+            zigfmt-*.zip
+            SHA256SUMS

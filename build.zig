@@ -1,4 +1,5 @@
 const std = @import("std");
+const zon = @import("build.zig.zon");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -10,6 +11,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const zig_utils = b.dependency("zig_utils", .{ .target = target, .optimize = optimize });
+
     const exe = b.addExecutable(.{
         .name = "zigfmt",
         .root_module = b.createModule(.{
@@ -18,9 +21,26 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "zigfmt", .module = mod },
+                .{ .name = "clap", .module = zig_utils.module("clap") },
             },
         }),
     });
+
+    // `zigfmt --version`: the version in build.zig.zon and the commit. The
+    // commit is looked up on every build (see tools/version.zig).
+    const version_tool = b.addExecutable(.{
+        .name = "version",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/version.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const version_cmd = b.addRunArtifact(version_tool);
+    version_cmd.addArg(zon.version);
+    const version_file = version_cmd.addOutputFileArg("version.zig");
+    version_cmd.setCwd(b.path("."));
+    version_cmd.has_side_effects = true;
+    exe.root_module.addAnonymousImport("version", .{ .root_source_file = version_file });
 
     // `zig build` builds into zig-out for development.
     const dev_step = b.step("dev", "Build zigfmt into zig-out");

@@ -13,6 +13,8 @@ Status: proof of concept. Requires Zig 0.17.0.
   and `// zig fmt: off`, is handled as in `zig fmt`.
 - **Import passes** (`src/imports.zig`) sort imports and find `@import`s
   inside code.
+- **Command line** parsing uses `clap` from
+  [zig-utils](https://github.com/jdmichaud/zig-utils), the only dependency.
 
 ## Differences from `zig fmt`
 
@@ -63,6 +65,9 @@ trailing commas) keeps every line break and indentation.
 
 ## Installation
 
+Each GitHub release has binaries for Linux, macOS and Windows (x86_64 and
+aarch64). To build from source:
+
 ```sh
 zig build install -Doptimize=ReleaseSafe                   # ~/.local/bin/zigfmt
 zig build install -Doptimize=ReleaseSafe -Dprefix=/opt/zig # /opt/zig/bin/zigfmt
@@ -79,13 +84,15 @@ zigfmt src/                       # format in place
 zigfmt --check .                  # list unformatted files, exit 1 if any
 zigfmt --stdin < a.zig            # format stdin to stdout
 zigfmt --print-config src/main.zig
+zigfmt --version                  # e.g. zigfmt 0.1.0+1a2b3c4d5
 ```
 
 `.zig` and `.zon` files are formatted. Directories are searched
-recursively, skipping hidden directories, `zig-out`, `zig-cache` and what
-`.gitignore` files ignore: those inside the directory, and those of its
-parents up to the repository root. Files named on the command line are
-always formatted. Run `zigfmt --help` for all options.
+recursively, skipping hidden directories, `zig-out`, `zig-pkg`,
+`zig-cache` and what `.gitignore` files ignore: those inside the
+directory, and those of its parents up to the repository root. Files
+named on the command line are always formatted. Run `zigfmt --help` for
+all options.
 
 The exit code is 1 if a file has syntax errors or fails a check, or with
 `--check` if a file is not formatted.
@@ -158,11 +165,38 @@ Current results: 0 failures on 1,426 files (Zig's `lib/`, packages in the
 Zig cache, and other local projects). Of the lines over 100 columns, most
 are long string literals and comments.
 
+CI (`.github/workflows/ci.yml`) runs the unit tests on Linux, macOS and
+Windows, and the corpus check over Zig's `lib/`.
+
+## Releasing
+
+```sh
+./release.sh            # or: ./release.sh minor, ./release.sh major
+git push origin master
+git push origin 0.1.0   # the version that was tagged
+```
+
+`release.sh` runs the tests and the corpus check, turns the `Unreleased`
+section of `CHANGELOG.md` into one for the version in `build.zig.zon`, tags
+that version, then bumps it (patch by default) and commits the bump.
+Nothing is pushed. Pushing the tag makes CI build the binaries and publish
+a GitHub release with that `CHANGELOG.md` section as its notes. CI refuses
+tags that aren't the version in `build.zig.zon`.
+
+`zigfmt --version` prints the version in `build.zig.zon` and the commit:
+
+- `0.1.0+1a2b3c4d5`: built from the commit tagged `0.1.0`;
+- `0.1.1-dev+5d4c3b2a1`: built from any other commit, on the way to
+  `0.1.1`. `.dirty` is appended when tracked files have uncommitted
+  changes, and the commit is `unknown` when not built from a git checkout.
+
 ## Updating to a new Zig release
 
 1. Diff upstream `lib/std/zig/Ast/Render.zig` between the old and new Zig
    versions and apply the changes to `src/Render.zig`.
 2. Run `zig build corpus` over the new release's `lib/` directory.
+3. Update `minimum_zig_version` in `build.zig.zon`. CI installs that
+   version.
 
 The project's own sources are formatted with `zig fmt`, which keeps
 `src/Render.zig` close to upstream.

@@ -1,6 +1,12 @@
 .{
     .name = .zigfmt,
     .version = "0.0.1",
+    .dependencies = .{
+        .zig_utils = .{
+            .url = "git+https://github.com/jdmichaud/zig-utils#368a50c717f79dfc9839307b27846fdedf9da52e",
+            .hash = "zig_utils-0.1.0-Qth2wfI5BAAmB3dEZ1Q62Lxpva1-jPhuSfFd_yQqmOFq",
+        },
+    },
     .fingerprint = 0xe2c942df4d6545a5,
     .minimum_zig_version = "0.17.0",
     .paths = .{
