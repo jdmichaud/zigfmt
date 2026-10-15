@@ -444,6 +444,35 @@ test "line_width: arrays laid out in rows keep their rows" {
     );
 }
 
+test "structs with named fields are never on one line" {
+    try expectFormat(.default,
+        \\const S = struct { a: u32 };
+        \\const E = enum { red, green };
+        \\const P = struct { u32, u32 };
+        \\const Empty = struct {};
+        \\const L = std.MultiArrayList(struct { a: u32, b: u32 });
+        \\const M = std.EnumArray(enum { a, b }, u32);
+        \\const T = foo(0, [_]struct { a: u8 }{ .{ .a = 1 } });
+        \\
+    ,
+        \\const S = struct {
+        \\    a: u32,
+        \\};
+        \\const E = enum { red, green };
+        \\const P = struct { u32, u32 };
+        \\const Empty = struct {};
+        \\const L = std.MultiArrayList(struct {
+        \\    a: u32,
+        \\    b: u32,
+        \\});
+        \\const M = std.EnumArray(enum { a, b }, u32);
+        \\const T = foo(0, [_]struct {
+        \\    a: u8,
+        \\}{ .{ .a = 1 } });
+        \\
+    );
+}
+
 test "trailing_commas" {
     try expectFormat(.{ .line_width = 40, .trailing_commas = false },
         \\const x = foo(alpha_long, beta_long, gamma,);
@@ -478,7 +507,7 @@ test "space_inside_braces" {
         \\const b = .{ 1, 2 };
         \\const c = .{ .x = 1 };
         \\const E = error{A};
-        \\const S = struct { a: u32 };
+        \\const C = enum { a, b };
         \\const e = .{};
         \\
     ;
@@ -487,7 +516,7 @@ test "space_inside_braces" {
         \\const b = .{ 1, 2 };
         \\const c = .{ .x = 1 };
         \\const E = error{ A };
-        \\const S = struct { a: u32 };
+        \\const C = enum { a, b };
         \\const e = .{};
         \\
     );
@@ -496,7 +525,7 @@ test "space_inside_braces" {
         \\const b = .{1, 2};
         \\const c = .{.x = 1};
         \\const E = error{A};
-        \\const S = struct {a: u32};
+        \\const C = enum {a, b};
         \\const e = .{};
         \\
     );

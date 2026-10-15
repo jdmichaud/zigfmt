@@ -2491,7 +2491,7 @@ fn renderContainerDecl(
     const members = container_decl.ast.members;
     const layout = try decideLayout(r, .{
         .open = lbrace,
-        .can_flat = isOneLineContainerDecl(tree, container_decl, lbrace, rbrace),
+        .can_flat = canContainerBeFlat(tree, container_decl, lbrace, rbrace),
     });
     if (layout == .flat) {
         // Print all the declarations on the same line.
@@ -3078,16 +3078,62 @@ fn skipComma(r: *Render, comma: Ast.TokenIndex) Error!bool {
 }
 
 /// Returns the opening token of the last argument of a call if the other
-/// arguments may stay on the line while only it is split.
+/// arguments may stay on the line while only it is split: a non-empty
+/// initializer or container declaration, or a multiline string.
 fn hugToken(tree: Ast, last: Ast.Node.Index, lparen: Ast.TokenIndex, rparen: Ast.TokenIndex) ?Ast.TokenIndex {
     if (hasComment(tree, lparen, tree.firstToken(last)) or hasComment(tree, tree.lastToken(last), rparen)) {
         return null;
     }
     var buf: [2]Ast.Node.Index = undefined;
     if (tree.nodeTag(last) == .multiline_string_literal) return tree.firstToken(last);
-    if (tree.fullStructInit(&buf, last)) |init| return if (init.ast.fields.len != 0) init.ast.lbrace else null;
-    if (tree.fullArrayInit(&buf, last)) |init| return if (init.ast.elements.len != 0) init.ast.lbrace else null;
+    if (tree.fullStructInit(&buf, last)) |init| {
+        if (splitTypeBrace(tree, init.ast.type_expr)) |lbrace| return lbrace;
+        return if (init.ast.fields.len != 0) init.ast.lbrace else null;
+    }
+    if (tree.fullArrayInit(&buf, last)) |init| {
+        if (splitTypeBrace(tree, init.ast.type_expr)) |lbrace| return lbrace;
+        return if (init.ast.elements.len != 0) init.ast.lbrace else null;
+    }
+    if (tree.fullContainerDecl(&buf, last)) |container| return containerLbrace(tree, container);
     return null;
+}
+
+/// If the type of an initializer is (an array of) a container declaration
+/// that is always split, returns its opening brace: the line breaks there
+/// first, before the initializer's own brace.
+fn splitTypeBrace(tree: Ast, type_expr: Ast.Node.OptionalIndex) ?Ast.TokenIndex {
+    var node = type_expr.unwrap() orelse return null;
+    while (tree.fullArrayType(node)) |array_type| node = array_type.ast.elem_type;
+    var buf: [2]Ast.Node.Index = undefined;
+    const container = tree.fullContainerDecl(&buf, node) orelse return null;
+    const lbrace = containerLbrace(tree, container) orelse return null;
+    if (canContainerBeFlat(tree, container, lbrace, tree.lastToken(node))) return null;
+    return lbrace;
+}
+
+/// The opening brace of a container declaration with members.
+fn containerLbrace(tree: Ast, container: Ast.full.ContainerDecl) ?Ast.TokenIndex {
+    if (container.ast.members.len == 0) return null;
+    // Only doc comments are between the brace and the first member.
+    var lbrace = tree.firstToken(container.ast.members[0]) - 1;
+    while (tree.tokenTag(lbrace) != .l_brace) lbrace -= 1;
+    return lbrace;
+}
+
+/// Whether the container may be on one line, if it fits. Unlike `zig fmt`,
+/// structs with named fields never are.
+fn canContainerBeFlat(
+    tree: Ast,
+    container_decl: Ast.full.ContainerDecl,
+    lbrace: Ast.TokenIndex,
+    rbrace: Ast.TokenIndex,
+) bool {
+    if (tree.tokenTag(container_decl.ast.main_token) == .keyword_struct) {
+        for (container_decl.ast.members) |member| {
+            if (tree.fullContainerField(member)) |field| if (!field.ast.tuple_like) return false;
+        }
+    }
+    return isOneLineContainerDecl(tree, container_decl, lbrace, rbrace);
 }
 
 /// Whether the source puts several elements on one line and also has

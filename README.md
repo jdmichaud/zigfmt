@@ -24,9 +24,9 @@ the source was laid out:
   the next point where the line could break. Trailing comments don't count.
 - Otherwise it is split one element per line, ending with a comma
   (`trailing_commas`). Outer lists split before inner ones.
-- In a call whose last argument is an initializer or multiline string, the
-  other arguments stay on the line if they fit, and only that argument is
-  split:
+- In a call whose last argument is an initializer, a container declaration
+  or a multiline string, the other arguments stay on the line if they fit,
+  and only that argument is split:
 
   ```zig
   try list.append(gpa, .{
@@ -41,8 +41,12 @@ the source was laid out:
   tables and matrices readable.
 
 This applies to call and builtin arguments, function parameters, struct
-and array initializers, containers, error sets, `for` inputs and `switch`
-prong items.
+and array initializers, container declarations, error sets, `for` inputs
+and `switch` prong items.
+
+Container declarations may only be on one line if they contain nothing but
+fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
+`struct` with named fields is always one field per line, even when short.
 
 Not split yet: long binary expressions (`a and b`), `if`/`else` and
 `catch`/`orelse` bodies, long string literals and comments. Line breaks
