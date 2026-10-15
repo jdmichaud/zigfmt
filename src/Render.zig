@@ -3121,17 +3121,19 @@ fn containerLbrace(tree: Ast, container: Ast.full.ContainerDecl) ?Ast.TokenIndex
 }
 
 /// Whether the container may be on one line, if it fits. Unlike `zig fmt`,
-/// structs with named fields never are.
+/// structs with named fields and unions never are.
 fn canContainerBeFlat(
     tree: Ast,
     container_decl: Ast.full.ContainerDecl,
     lbrace: Ast.TokenIndex,
     rbrace: Ast.TokenIndex,
 ) bool {
-    if (tree.tokenTag(container_decl.ast.main_token) == .keyword_struct) {
-        for (container_decl.ast.members) |member| {
+    switch (tree.tokenTag(container_decl.ast.main_token)) {
+        .keyword_union => return false,
+        .keyword_struct => for (container_decl.ast.members) |member| {
             if (tree.fullContainerField(member)) |field| if (!field.ast.tuple_like) return false;
-        }
+        },
+        else => {},
     }
     return isOneLineContainerDecl(tree, container_decl, lbrace, rbrace);
 }

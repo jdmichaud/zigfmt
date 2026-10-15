@@ -444,9 +444,10 @@ test "line_width: arrays laid out in rows keep their rows" {
     );
 }
 
-test "structs with named fields are never on one line" {
+test "structs with named fields and unions are never on one line" {
     try expectFormat(.default,
         \\const S = struct { a: u32 };
+        \\const U = union(enum) { int: i64, none };
         \\const E = enum { red, green };
         \\const P = struct { u32, u32 };
         \\const Empty = struct {};
@@ -457,6 +458,10 @@ test "structs with named fields are never on one line" {
     ,
         \\const S = struct {
         \\    a: u32,
+        \\};
+        \\const U = union(enum) {
+        \\    int: i64,
+        \\    none,
         \\};
         \\const E = enum { red, green };
         \\const P = struct { u32, u32 };

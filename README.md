@@ -46,7 +46,8 @@ and `switch` prong items.
 
 Container declarations may only be on one line if they contain nothing but
 fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
-`struct` with named fields is always one field per line, even when short.
+`union`, or a `struct` with named fields, is always one field per line, even
+when short.
 
 Not split yet: long binary expressions (`a and b`), `if`/`else` and
 `catch`/`orelse` bodies, long string literals and comments. Line breaks
