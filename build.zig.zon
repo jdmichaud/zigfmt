@@ -1,0 +1,14 @@
+.{
+    .name = .zigfmt,
+    .version = "0.0.1",
+    .fingerprint = 0xe2c942df4d6545a5,
+    .minimum_zig_version = "0.17.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tools",
+        "LICENSE",
+        "README.md",
+    },
+}
