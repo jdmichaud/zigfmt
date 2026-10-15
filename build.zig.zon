@@ -9,6 +9,7 @@
         "src",
         "tools",
         "LICENSE",
+        "LICENSE-ZIG",
         "README.md",
     },
 }

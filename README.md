@@ -154,5 +154,5 @@ The project's own sources are formatted with `zig fmt`, which keeps
 
 ## License
 
-`src/Render.zig` is derived from the Zig standard library (MIT, see
-`LICENSE`).
+MIT, see `LICENSE`. `src/Render.zig` is derived from the Zig standard
+library, also MIT: see `LICENSE-ZIG`.

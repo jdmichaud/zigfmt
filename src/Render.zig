@@ -1,6 +1,6 @@
 //! Configurable fork of `lib/std/zig/Ast/Render.zig` from Zig 0.17.0.
 //!
-//! Copyright (c) Zig contributors. MIT License (Expat), see LICENSE.
+//! Copyright (c) Zig contributors. MIT License (Expat), see LICENSE-ZIG.
 //!
 //! Upstream hardcodes its layout constants. This fork takes them from a
 //! `Config` instead. With `Config.default` the output is byte-for-byte
