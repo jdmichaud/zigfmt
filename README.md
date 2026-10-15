@@ -61,14 +61,24 @@ inside functions, tests and `comptime` blocks.
 `zig fmt` doesn't undo any of this: running it on zigfmt's output (4 spaces,
 trailing commas) keeps every line break and indentation.
 
+## Installation
+
+```sh
+zig build install -Doptimize=ReleaseSafe                   # ~/.local/bin/zigfmt
+zig build install -Doptimize=ReleaseSafe -Dprefix=/opt/zig # /opt/zig/bin/zigfmt
+```
+
+`-Dprefix` replaces Zig's `--prefix`, whose default (`zig-out`) a build
+script can't change. A relative prefix is relative to the current
+directory. Plain `zig build` builds into `zig-out/bin` without installing.
+
 ## Usage
 
 ```sh
-zig build
-./zig-out/bin/zigfmt src/              # format in place
-./zig-out/bin/zigfmt --check .         # list unformatted files, exit 1 if any
-./zig-out/bin/zigfmt --stdin < a.zig   # format stdin to stdout
-./zig-out/bin/zigfmt --print-config src/main.zig
+zigfmt src/                       # format in place
+zigfmt --check .                  # list unformatted files, exit 1 if any
+zigfmt --stdin < a.zig            # format stdin to stdout
+zigfmt --print-config src/main.zig
 ```
 
 `.zig` and `.zon` files are formatted. Directories are searched

@@ -21,12 +21,35 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    b.installArtifact(exe);
+
+    // `zig build` builds into zig-out for development.
+    const dev_step = b.step("dev", "Build zigfmt into zig-out");
+    dev_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+    b.default_step = dev_step;
+
+    // `zig build install` copies zigfmt to `<prefix>/bin`. The build
+    // system's `--prefix` can't be given another default than zig-out, so
+    // this uses its own option.
+    b.install_tls.description = "Install zigfmt to <prefix>/bin (see -Dprefix)";
+    const installer = b.addExecutable(.{
+        .name = "install",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/install.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const install_cmd = b.addRunArtifact(installer);
+    install_cmd.addArtifactArg(exe);
+    // The default, ~/.local, is resolved by the installer (see tools/install.zig).
+    if (b.option([]const u8, "prefix", "Where `zig build install` puts bin/zigfmt (default: ~/.local)")) |prefix| {
+        install_cmd.addArg(prefix);
+    }
+    install_cmd.has_side_effects = true;
+    b.getInstallStep().dependOn(&install_cmd.step);
 
     const run_step = b.step("run", "Run zigfmt");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
-    run_cmd.step.dependOn(b.getInstallStep());
     run_cmd.addPassthruArgs();
 
     const test_step = b.step("test", "Run unit tests");
