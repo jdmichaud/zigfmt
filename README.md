@@ -136,8 +136,19 @@ The bodies of `while` and `for` statements always go in blocks
 (`loop_blocks`). `if` and loop expressions (`const x = if (c) a else b;`)
 and branches with comments are left as they are.
 
-`zig fmt` doesn't undo any of this: with `.indent_width = 4`, running it on
-zigfmt's output keeps every line break and indentation.
+The opening brace of a block always ends the line, even after a condition
+on several lines, where `zig fmt` puts it on a line of its own:
+
+```zig
+if (width == 0 or
+  height == 0 or
+  width > 8192) {
+  return error.InvalidResolution;
+}
+```
+
+`zig fmt` doesn't undo the rest: with `.indent_width = 4`, running it on
+zigfmt's output keeps every other line break and indentation.
 
 ## Installation
 
@@ -244,7 +255,7 @@ import sorting and checks, `.gitignore` matching.
 - tokens and comments are identical to `zig fmt`'s output, apart from
   trailing commas and the braces and semicolons that blocks add;
 - with 4-space indentation, `zig fmt` keeps the line structure of the
-  output;
+  output, apart from the braces it puts on lines of their own;
 - with an unlimited line width, each line is the base output's line with
   converted indentation, empty lines and line endings.
 

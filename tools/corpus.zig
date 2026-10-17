@@ -161,10 +161,14 @@ fn checkFile(gpa: Allocator, source: [:0]const u8, mode: Ast.Mode, path: []const
         {
             const zig_fmt_output = try output_tree.renderAlloc(gpa);
             defer gpa.free(zig_fmt_output);
-            if (lineStructureDiffers(output, zig_fmt_output)) |line| {
+            const ours = try joinBraceLines(gpa, output);
+            defer gpa.free(ours);
+            const theirs = try joinBraceLines(gpa, zig_fmt_output);
+            defer gpa.free(theirs);
+            if (lineStructureDiffers(ours, theirs)) |line| {
                 fail(stats, path, config, "zig fmt changes the line structure");
-                printLines("ours   ", output, line);
-                printLines("zig fmt", zig_fmt_output, line);
+                printLines("ours   ", ours, line);
+                printLines("zig fmt", theirs, line);
             }
         }
 
@@ -218,6 +222,39 @@ fn trailingWhitespace(output: []const u8) ?usize {
         if (line.len != 0 and (line[line.len - 1] == ' ' or line[line.len - 1] == '\t')) return number;
     }
     return null;
+}
+
+/// Joins the lines that start a block to the line before them, as zigfmt
+/// writes them: `zig fmt` puts the brace after a condition on several lines
+/// on a line of its own, with the block's label: `{`, `{}`, `blk: {`.
+fn joinBraceLines(gpa: Allocator, text: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(gpa);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    var prev = lines.first();
+    try out.appendSlice(gpa, prev);
+    while (lines.next()) |line| {
+        const content = std.mem.trimStart(u8, line, " ");
+        const after_condition = std.mem.endsWith(u8, prev, ")") or std.mem.endsWith(u8, prev, "|");
+        if (after_condition and startsBlock(content)) {
+            try out.append(gpa, ' ');
+            try out.appendSlice(gpa, content);
+        } else {
+            try out.append(gpa, '\n');
+            try out.appendSlice(gpa, line);
+        }
+        prev = line;
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+/// Whether `content` starts with a block, labeled or not.
+fn startsBlock(content: []const u8) bool {
+    if (std.mem.startsWith(u8, content, "{")) return true;
+    const colon = std.mem.find(u8, content, ": {") orelse return false;
+    if (colon == 0) return false;
+    for (content[0..colon]) |c| if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
+    return true;
 }
 
 /// Returns the first line (1-based) where the two outputs differ in line

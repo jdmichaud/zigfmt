@@ -1556,11 +1556,9 @@ fn renderThenElse(
 
     if (indent_then_expr) try ais.pushIndent(.normal);
 
-    if (then_expr_is_block and ais.isLineOverIndented()) {
-        ais.disableIndentCommitting();
-        try renderToken(r, last_prefix_token, .newline);
-        ais.enableIndentCommitting();
-    } else if (indent_then_expr) {
+    // Unlike `zig fmt`, a block's opening brace stays at the end of the line
+    // after a condition on several lines.
+    if (indent_then_expr) {
         try renderToken(r, last_prefix_token, .newline);
     } else {
         try renderToken(r, last_prefix_token, .space);
@@ -1813,14 +1811,7 @@ fn renderInBlocks(
 fn renderInBlock(r: *Render, prefix_token: Ast.TokenIndex, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    // After a condition on several lines, as for blocks in `renderThenElse`.
-    if (ais.isLineOverIndented()) {
-        ais.disableIndentCommitting();
-        try renderToken(r, prefix_token, .newline);
-        ais.enableIndentCommitting();
-    } else {
-        try renderToken(r, prefix_token, .space);
-    }
+    try renderToken(r, prefix_token, .space);
     if (nodeIsBlock(r.tree.nodeTag(node))) return renderExpression(r, node, space);
 
     try ais.pushIndent(.normal);

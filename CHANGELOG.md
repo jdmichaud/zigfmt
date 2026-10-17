@@ -20,6 +20,8 @@ matching the pushed tag as the release notes.
 - `catch` and `orelse` break before their fallback when the line doesn't
   fit, except before a block or a `switch`.
 - 2-space indentation by default (`zig fmt` uses 4).
+- The opening brace of a block ends the line, even after a condition on
+  several lines.
 - Options for indentation, line endings, empty lines, spaces inside braces,
   spaces around ranges and import sorting.
 - An error for `@import` inside functions, tests and `comptime` blocks.

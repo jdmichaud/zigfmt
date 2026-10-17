@@ -388,8 +388,7 @@ test "line_width: and/or chains break between operands before lists split" {
         \\  return abs(a.x - b.x) <= 1 and
         \\    abs(a.y - b.y) <= 1;
         \\  if (first_condition and
-        \\    second_condition)
-        \\  {
+        \\    second_condition) {
         \\    x();
         \\  }
         \\}
@@ -540,6 +539,31 @@ test "line_width: no break where the line doesn't fit up to it" {
         \\  if (alpha_long and
         \\    beta_long and
         \\    gamma_long) return x;
+        \\}
+        \\
+    );
+}
+
+test "the opening brace stays at the end of a condition on several lines" {
+    try expectFormat(.default,
+        \\test {
+        \\  if (width == 0 or
+        \\    height == 0 or
+        \\    width > 8192 or
+        \\    height > 8192)
+        \\  {
+        \\    return error.InvalidResolution;
+        \\  }
+        \\}
+        \\
+    ,
+        \\test {
+        \\  if (width == 0 or
+        \\    height == 0 or
+        \\    width > 8192 or
+        \\    height > 8192) {
+        \\    return error.InvalidResolution;
+        \\  }
         \\}
         \\
     );
@@ -980,8 +1004,7 @@ test "if_blocks" {
         \\    return;
         \\  }
         \\  if (a and
-        \\    b)
-        \\  {
+        \\    b) {
         \\    return;
         \\  }
         \\  if (c) return 1 else return 2;
