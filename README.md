@@ -177,6 +177,7 @@ import sorting and checks, `.gitignore` matching.
 16 configs and checks that:
 
 - the output parses, and formatting it again changes nothing;
+- no line ends with whitespace, outside multiline strings;
 - tokens and comments are identical to `zig fmt`'s output, apart from
   trailing commas;
 - with 4-space indentation, `zig fmt` keeps the line structure of the

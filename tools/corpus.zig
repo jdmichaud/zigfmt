@@ -143,6 +143,13 @@ fn checkFile(gpa: Allocator, source: [:0]const u8, mode: Ast.Mode, path: []const
             printFirstDifference(output, again);
         }
 
+        if (std.mem.find(u8, source, "zig fmt: off") == null) {
+            if (trailingWhitespace(output)) |line| {
+                fail(stats, path, config, "trailing whitespace");
+                printLines("output", output, line);
+            }
+        }
+
         if (!config.sort_imports and !sameTokensAndComments(std_output_z, output_z)) {
             fail(stats, path, config, "tokens or comments differ from zig fmt");
             printFirstDifference(std_output, output);
@@ -197,6 +204,19 @@ fn countLongLines(output: []const u8, path: []const u8, line_width: usize, stats
             }
         }
     }
+}
+
+/// Number of the first line that ends with a space or a tab, outside
+/// multiline strings.
+fn trailingWhitespace(output: []const u8) ?usize {
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    var number: usize = 1;
+    while (lines.next()) |raw| : (number += 1) {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (std.mem.startsWith(u8, std.mem.trimStart(u8, line, " \t"), "\\\\")) continue;
+        if (line.len != 0 and (line[line.len - 1] == ' ' or line[line.len - 1] == '\t')) return number;
+    }
+    return null;
 }
 
 /// Returns the first line (1-based) where the two outputs differ in line
