@@ -319,16 +319,25 @@ fn checkLayout(expected: []const u8, output: []const u8, config: Config) ?Mismat
 }
 
 /// Compares the token streams and the comments between tokens. Trailing
-/// commas are ignored.
+/// commas are ignored, and so are the braces and semicolons that blocks
+/// around `if` branches add to `b` or remove from it (see
+/// `Config.if_blocks`).
 fn sameTokensAndComments(a: [:0]const u8, b: [:0]const u8) bool {
     var ta: std.zig.Tokenizer = .init(a);
     var tb: std.zig.Tokenizer = .init(b);
     var a_end: usize = 0;
     var b_end: usize = 0;
     while (true) {
-        const x = nextToken(&ta);
-        const y = nextToken(&tb);
-        if (x.tag != y.tag) return false;
+        var x = nextToken(&ta);
+        var y = nextToken(&tb);
+        while (x.tag != y.tag) {
+            if (x.tag == .semicolon) {
+                x = nextToken(&ta);
+            } else switch (y.tag) {
+                .l_brace, .r_brace, .semicolon => y = nextToken(&tb),
+                else => return false,
+            }
+        }
         if (!sameComments(a[a_end..x.loc.start], b[b_end..y.loc.start])) return false;
         const trim = " \t\r";
         if (!std.mem.eql(
@@ -353,9 +362,9 @@ fn nextToken(tokenizer: *std.zig.Tokenizer) std.zig.Token {
     };
 }
 
-/// Whitespace between tokens may differ; comment lines may not. A skipped
-/// trailing comma can be part of the gap, so commas at the ends of gap lines
-/// are ignored.
+/// Whitespace between tokens may differ; comment lines may not. Skipped
+/// trailing commas, braces and semicolons can be part of the gap, so they
+/// are ignored at the ends of gap lines.
 fn sameComments(a: []const u8, b: []const u8) bool {
     var la = std.mem.tokenizeAny(u8, a, "\r\n");
     var lb = std.mem.tokenizeAny(u8, b, "\r\n");
@@ -369,7 +378,7 @@ fn sameComments(a: []const u8, b: []const u8) bool {
 
 fn nextComment(lines: *std.mem.TokenIterator(u8, .any)) ?[]const u8 {
     while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, " \t,");
+        const trimmed = std.mem.trim(u8, line, " \t,{};");
         if (trimmed.len != 0) return trimmed;
     }
     return null;

@@ -33,6 +33,10 @@ trailing_commas: bool = true,
 space_inside_braces: bool = true,
 /// Spaces around `..` and `...` in slices, ranges and switch prongs.
 range_spacing: RangeSpacing = .never,
+/// Put the branches of an `if` statement in blocks unless they are jumps:
+/// `return`, `break`, `continue`, `unreachable`, `@panic`, `@trap` or
+/// `@compileError`. When one branch needs a block, all of them get one.
+if_blocks: bool = true,
 /// Sort runs of consecutive top-level `@import` declarations by path.
 sort_imports: bool = false,
 /// Whether `@import` may appear inside function bodies, tests and

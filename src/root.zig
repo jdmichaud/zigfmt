@@ -845,6 +845,87 @@ test "space_inside_braces: none next to an element that is a list" {
     );
 }
 
+test "if_blocks" {
+    const input =
+        \\test {
+        \\  if (a) x = 1;
+        \\  if (b) return;
+        \\  if (c) foo() else bar();
+        \\  if (d) |v| total += v else |err| return err;
+        \\  if (e) x = 1 else if (f) y = 2 else return;
+        \\  if (g) return else if (h) foo();
+        \\  if (i) @panic("no");
+        \\  if (j) x = 1; // why
+        \\  if (k)
+        \\    // why
+        \\    x = 1;
+        \\  if (n) while (to < len) {
+        \\    to += 1;
+        \\  }; // why
+        \\  if (o) |c|
+        \\    x = c;
+        \\  if (p) for (a) |x| switch (x) {
+        \\    else => {},
+        \\  };
+        \\  const v = if (l) a() else b();
+        \\  while (m) i += 1;
+        \\}
+        \\
+    ;
+    try expectFormat(.default, input,
+        \\test {
+        \\  if (a) {
+        \\    x = 1;
+        \\  }
+        \\  if (b) return;
+        \\  if (c) {
+        \\    foo();
+        \\  } else {
+        \\    bar();
+        \\  }
+        \\  if (d) |v| {
+        \\    total += v;
+        \\  } else |err| {
+        \\    return err;
+        \\  }
+        \\  if (e) {
+        \\    x = 1;
+        \\  } else if (f) {
+        \\    y = 2;
+        \\  } else {
+        \\    return;
+        \\  }
+        \\  if (g) return else if (h) {
+        \\    foo();
+        \\  }
+        \\  if (i) @panic("no");
+        \\  if (j) {
+        \\    x = 1; // why
+        \\  }
+        \\  if (k)
+        \\    // why
+        \\    x = 1;
+        \\  if (n) {
+        \\    while (to < len) {
+        \\      to += 1;
+        \\    } // why
+        \\  }
+        \\  if (o) |c| {
+        \\    x = c;
+        \\  }
+        \\  if (p) {
+        \\    for (a) |x| switch (x) {
+        \\      else => {},
+        \\    };
+        \\  }
+        \\  const v = if (l) a() else b();
+        \\  while (m) i += 1;
+        \\}
+        \\
+    );
+    try expectFormat(.{ .if_blocks = false }, input, input);
+}
+
 test "range_spacing" {
     const input =
         \\const a = s[i + 1 .. n];

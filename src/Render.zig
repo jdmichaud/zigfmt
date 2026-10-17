@@ -42,6 +42,9 @@ decl_value: Ast.Node.OptionalIndex = .none,
 breaks: *std.AutoHashMapUnmanaged(Ast.TokenIndex, ChainLayout),
 /// Set while rendering the left operand of a chain, which continues it.
 chain: ?Chain = null,
+/// Set while rendering the `else if` of an `if` statement, which is a
+/// statement too. See `Config.if_blocks`.
+else_if: ?ElseIf = null,
 
 /// Aligns `asm` operands after `: `. This is alignment, not indentation, so
 /// it does not depend on `Config.indent_width`. It is not used with tabs, so
@@ -1448,7 +1451,9 @@ fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
 /// respective values set to null.
 fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
     const tree = r.tree;
-    try decideBodyBreak(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr);
+    const statement = r.ifStatement(while_node.ast.while_token);
+    const blocks = if (statement) |inherited| usesBlocks(r, while_node, inherited) else false;
+    if (!blocks) try decideBodyBreak(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr);
 
     if (while_node.label_token) |label| {
         try renderIdentifier(r, label, .none, .eagerly_unquote); // label
@@ -1498,9 +1503,19 @@ fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void 
         last_prefix_token = tree.lastToken(cont_expr) + 1; // rparen
     }
 
+    if (blocks) return renderInBlocks(
+        r,
+        last_prefix_token,
+        while_node.ast.then_expr,
+        while_node.else_token,
+        while_node.error_token,
+        while_node.ast.else_expr,
+        space,
+    );
     try renderThenElse(
         r,
         while_node.ast.while_token,
+        statement != null,
         last_prefix_token,
         while_node.ast.then_expr,
         while_node.else_token,
@@ -1513,6 +1528,8 @@ fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void 
 fn renderThenElse(
     r: *Render,
     keyword: Ast.TokenIndex,
+    /// Whether this is an `if` statement, whose `else if` is one too.
+    statement: bool,
     last_prefix_token: Ast.TokenIndex,
     then_expr: Ast.Node.Index,
     else_token: ?Ast.TokenIndex,
@@ -1572,12 +1589,166 @@ fn renderThenElse(
             ais.popIndent();
         } else {
             try renderToken(r, last_else_token, .space);
+            if (statement) if (tree.fullIf(else_expr)) |else_if| {
+                r.else_if = .{ .if_token = else_if.ast.if_token, .blocks = false };
+            };
             try renderExpression(r, else_expr, space);
         }
     } else {
         try renderExpression(r, then_expr, space);
         if (indent_then_expr) ais.popIndent();
     }
+}
+
+const ElseIf = struct {
+    if_token: Ast.TokenIndex,
+    /// Whether the `if` statement it continues uses blocks.
+    blocks: bool,
+};
+
+/// Null unless `keyword` is that of an `if` statement, or of the `else if`
+/// of one. Then whether the statement it continues uses blocks.
+fn ifStatement(r: *Render, keyword: Ast.TokenIndex) ?bool {
+    const tree = r.tree;
+    const else_if = r.else_if;
+    r.else_if = null;
+    if (tree.tokenTag(keyword) != .keyword_if) return null;
+    if (else_if) |e| if (e.if_token == keyword) return e.blocks;
+    const unit = r.unit orelse return null;
+    if (unit.kind != .statement or tree.nodeMainToken(unit.node) != keyword) return null;
+    return false;
+}
+
+/// Whether the branches of an `if` statement go in blocks. See
+/// `Config.if_blocks`.
+fn usesBlocks(r: *Render, if_node: Ast.full.While, inherited: bool) bool {
+    const tree = r.tree;
+    if (!r.config.if_blocks) return false;
+    const then_expr = if_node.ast.then_expr;
+    var last = then_expr;
+    var needed = inherited or needsBlock(tree, then_expr);
+    if (if_node.ast.else_expr.unwrap()) |else_expr| {
+        last = else_expr;
+        if (tree.fullIf(else_expr) == null) needed = needed or needsBlock(tree, else_expr);
+    }
+    // Comments would end up before the added semicolons and braces.
+    return needed and !hasComment(tree, tree.firstToken(then_expr) - 1, tree.lastToken(last));
+}
+
+/// Whether `node` written as a statement ends with a semicolon. Blocks and
+/// `switch`es don't, nor do `if`, `while` and `for` whose body is a block:
+/// `while (c) {}`. An `else` branch is a statement too.
+fn endsWithSemicolon(tree: Ast, node: Ast.Node.Index) bool {
+    var n = node;
+    while (true) {
+        switch (tree.nodeTag(n)) {
+            .block, .block_semicolon, .block_two, .block_two_semicolon, .@"switch", .switch_comma => return false,
+            else => {},
+        }
+        const then_expr: Ast.Node.Index, const else_expr: Ast.Node.OptionalIndex = if (tree.fullIf(n)) |full|
+            .{ full.ast.then_expr, full.ast.else_expr }
+        else if (tree.fullWhile(n)) |full|
+            .{ full.ast.then_expr, full.ast.else_expr }
+        else if (tree.fullFor(n)) |full|
+            .{ full.ast.then_expr, full.ast.else_expr }
+        else
+            return true;
+        n = else_expr.unwrap() orelse return !nodeIsBlock(tree.nodeTag(then_expr));
+    }
+}
+
+/// Whether an `if` branch needs a block: unless it is one, or a jump.
+fn needsBlock(tree: Ast, node: Ast.Node.Index) bool {
+    return switch (tree.nodeTag(node)) {
+        .block,
+        .block_semicolon,
+        .block_two,
+        .block_two_semicolon,
+        .@"return",
+        .@"break",
+        .@"continue",
+        .unreachable_literal,
+        => false,
+        .builtin_call,
+        .builtin_call_comma,
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        => {
+            const name = tree.tokenSlice(tree.nodeMainToken(node));
+            for ([_][]const u8{ "@panic", "@trap", "@compileError" }) |jump| {
+                if (mem.eql(u8, name, jump)) return false;
+            }
+            return true;
+        },
+        else => true,
+    };
+}
+
+/// Renders the branches of an `if` statement in blocks, adding the braces
+/// and the semicolon that the source doesn't have:
+/// `if (c) a() else b();` becomes `if (c) {` `a();` `} else {` `b();` `}`.
+fn renderInBlocks(
+    r: *Render,
+    last_prefix_token: Ast.TokenIndex,
+    then_expr: Ast.Node.Index,
+    else_token: ?Ast.TokenIndex,
+    maybe_error_token: ?Ast.TokenIndex,
+    opt_else_expr: Ast.Node.OptionalIndex,
+    space: Space,
+) Error!void {
+    const tree = r.tree;
+    const else_expr = opt_else_expr.unwrap() orelse {
+        return renderInBlock(r, last_prefix_token, then_expr, space);
+    };
+    try renderInBlock(r, last_prefix_token, then_expr, .space);
+
+    var last_else_token = else_token.?;
+    if (maybe_error_token) |error_token| {
+        try renderToken(r, last_else_token, .space); // else
+        try renderToken(r, error_token - 1, .none); // |
+        try renderIdentifier(r, error_token, .none, .preserve_when_shadowing); // identifier
+        last_else_token = error_token + 1; // |
+    }
+    if (tree.fullIf(else_expr)) |else_if| {
+        try renderToken(r, last_else_token, .space);
+        r.else_if = .{ .if_token = else_if.ast.if_token, .blocks = true };
+        return renderExpression(r, else_expr, space);
+    }
+    return renderInBlock(r, last_else_token, else_expr, space);
+}
+
+/// Renders `prefix_token`, then `node` in a block if it isn't one, as a
+/// statement of that block. With `.semicolon`, the source's semicolon after
+/// `node` ends it. Otherwise `space` follows the block.
+fn renderInBlock(r: *Render, prefix_token: Ast.TokenIndex, node: Ast.Node.Index, space: Space) Error!void {
+    const tree = r.tree;
+    const ais = r.ais;
+    // After a condition on several lines, as for blocks in `renderThenElse`.
+    if (ais.isLineOverIndented()) {
+        ais.disableIndentCommitting();
+        try renderToken(r, prefix_token, .newline);
+        ais.enableIndentCommitting();
+    } else {
+        try renderToken(r, prefix_token, .space);
+    }
+    if (nodeIsBlock(r.tree.nodeTag(node))) return renderExpression(r, node, space);
+
+    try ais.pushIndent(.normal);
+    try ais.writeAll("{");
+    try ais.insertNewline();
+    try ais.pushSpace(.semicolon);
+    const has_semicolon = space == .semicolon and tree.tokenTag(tree.lastToken(node) + 1) == .semicolon;
+    const needs_semicolon = endsWithSemicolon(tree, node);
+    try renderLine(r, .{
+        .kind = .statement,
+        .node = node,
+        .space = if (has_semicolon and needs_semicolon) .semicolon else .newline,
+        .semicolon = if (has_semicolon == needs_semicolon) .source else if (has_semicolon) .drop else .add,
+    });
+    ais.popSpace();
+    ais.popIndent();
+    try ais.writeAll("}");
+    if (space == .semicolon) try ais.insertNewline() else try renderOnlySpace(r, space);
 }
 
 fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
@@ -1621,6 +1792,7 @@ fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
     try renderThenElse(
         r,
         for_node.ast.for_token,
+        false,
         cur,
         for_node.ast.then_expr,
         for_node.else_token,
@@ -2914,6 +3086,15 @@ const Unit = struct {
     node: Ast.Node.Index,
     space: Space,
     container: Container = .other,
+    /// For a statement in a block that `renderInBlock` adds.
+    semicolon: enum {
+        /// As in the source.
+        source,
+        /// The statement needs one that the source doesn't have.
+        add,
+        /// The source has one that the statement doesn't need anymore.
+        drop,
+    } = .source,
 };
 
 fn renderUnit(r: *Render, unit: Unit) Error!void {
@@ -2921,8 +3102,18 @@ fn renderUnit(r: *Render, unit: Unit) Error!void {
         .expression => try renderExpression(r, unit.node, unit.space),
         .statement => if (r.tree.fullVarDecl(unit.node)) |var_decl| {
             try renderVarDecl(r, var_decl, false, unit.space);
-        } else {
-            try renderExpression(r, unit.node, unit.space);
+        } else switch (unit.semicolon) {
+            .source => try renderExpression(r, unit.node, unit.space),
+            .add => {
+                try renderExpression(r, unit.node, .none);
+                try r.ais.writeAll(";");
+                try renderOnlySpace(r, unit.space);
+            },
+            // Comments after the semicolon stay.
+            .drop => {
+                try renderExpression(r, unit.node, .none);
+                try renderSpace(r, r.tree.lastToken(unit.node) + 1, 1, unit.space);
+            },
         },
         .member => try renderMember(r, unit.container, unit.node, unit.space),
     }
@@ -3173,6 +3364,7 @@ fn measureUnit(r: *Render, unit: Unit, m: *Measure) Error!void {
         .fixups = r.fixups,
         .config = r.config,
         .flat = 1,
+        .unit = unit,
         .measure = m,
         .breaks = r.breaks,
     };
