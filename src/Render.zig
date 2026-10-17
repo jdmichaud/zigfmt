@@ -32,6 +32,9 @@ flat: u32 = 0,
 unit: ?Unit = null,
 /// Set while rendering to measure a list.
 measure: ?*Measure = null,
+/// The value of the variable declaration being rendered. See
+/// `canContainerBeFlat`.
+decl_value: Ast.Node.OptionalIndex = .none,
 
 /// Aligns `asm` operands after `: `. This is alignment, not indentation, so
 /// it does not depend on `Config.indent_width`. It is not used with tabs, so
@@ -1406,6 +1409,7 @@ fn renderVarDeclWithoutFixups(
     const eq_space: Space = if (rhs_seperate_line) .newline else .space;
     try ais.pushIndent(.after_equals);
     try renderToken(r, eq_token, eq_space); // =
+    r.decl_value = init_node.toOptional();
     try renderExpression(r, init_node, space); // ;
     ais.popIndent();
 }
@@ -2491,7 +2495,7 @@ fn renderContainerDecl(
     const members = container_decl.ast.members;
     const layout = try decideLayout(r, .{
         .open = lbrace,
-        .can_flat = canContainerBeFlat(tree, container_decl, lbrace, rbrace),
+        .can_flat = canContainerBeFlat(tree, container_decl, lbrace, rbrace, r.decl_value == container_decl_node.toOptional()),
     });
     if (layout == .flat) {
         // Print all the declarations on the same line.
@@ -3107,7 +3111,7 @@ fn splitTypeBrace(tree: Ast, type_expr: Ast.Node.OptionalIndex) ?Ast.TokenIndex 
     var buf: [2]Ast.Node.Index = undefined;
     const container = tree.fullContainerDecl(&buf, node) orelse return null;
     const lbrace = containerLbrace(tree, container) orelse return null;
-    if (canContainerBeFlat(tree, container, lbrace, tree.lastToken(node))) return null;
+    if (canContainerBeFlat(tree, container, lbrace, tree.lastToken(node), false)) return null;
     return lbrace;
 }
 
@@ -3121,20 +3125,23 @@ fn containerLbrace(tree: Ast, container: Ast.full.ContainerDecl) ?Ast.TokenIndex
 }
 
 /// Whether the container may be on one line, if it fits. Unlike `zig fmt`,
-/// structs with named fields and unions never are.
+/// a struct with named fields or a union never is when it is `named`: the
+/// value of a declaration, `const S = struct { ... };`. Written in place, as
+/// in `fn f() struct { x: i16, y: i16 }`, it may be.
 fn canContainerBeFlat(
     tree: Ast,
     container_decl: Ast.full.ContainerDecl,
     lbrace: Ast.TokenIndex,
     rbrace: Ast.TokenIndex,
+    named: bool,
 ) bool {
-    switch (tree.tokenTag(container_decl.ast.main_token)) {
+    if (named) switch (tree.tokenTag(container_decl.ast.main_token)) {
         .keyword_union => return false,
         .keyword_struct => for (container_decl.ast.members) |member| {
             if (tree.fullContainerField(member)) |field| if (!field.ast.tuple_like) return false;
         },
         else => {},
-    }
+    };
     return isOneLineContainerDecl(tree, container_decl, lbrace, rbrace);
 }
 

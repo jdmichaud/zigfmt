@@ -453,16 +453,16 @@ test "line_width: arrays laid out in rows keep their rows" {
     );
 }
 
-test "structs with named fields and unions are never on one line" {
+test "structs with named fields and unions declared with a name are never on one line" {
     try expectFormat(.default,
         \\const S = struct { a: u32 };
         \\const U = union(enum) { int: i64, none };
         \\const E = enum { red, green };
         \\const P = struct { u32, u32 };
         \\const Empty = struct {};
-        \\const L = std.MultiArrayList(struct { a: u32, b: u32 });
-        \\const M = std.EnumArray(enum { a, b }, u32);
-        \\const T = foo(0, [_]struct { a: u8 }{ .{ .a = 1 } });
+        \\test {
+        \\  const Local = struct { a: u32 };
+        \\}
         \\
     ,
         \\const S = struct {
@@ -475,16 +475,25 @@ test "structs with named fields and unions are never on one line" {
         \\const E = enum { red, green };
         \\const P = struct { u32, u32 };
         \\const Empty = struct {};
-        \\const L = std.MultiArrayList(struct {
-        \\  a: u32,
-        \\  b: u32,
-        \\});
-        \\const M = std.EnumArray(enum { a, b }, u32);
-        \\const T = foo(0, [_]struct {
-        \\  a: u8,
-        \\}{ .{ .a = 1 } });
+        \\test {
+        \\  const Local = struct {
+        \\    a: u32,
+        \\  };
+        \\}
         \\
     );
+    // Written in place, they follow the line width like other lists.
+    const in_place =
+        \\pub fn step(side: Side) struct { x: i16, y: i16 } {}
+        \\fn pick() union(enum) { int: i64, none } {}
+        \\const Outer = struct {
+        \\  pos: struct { x: i16, y: i16 },
+        \\};
+        \\const L = std.MultiArrayList(struct { a: u32, b: u32 });
+        \\const T = foo(0, [_]struct { a: u8 }{ .{ .a = 1 } });
+        \\
+    ;
+    try expectFormat(.default, in_place, in_place);
 }
 
 test "trailing_commas" {

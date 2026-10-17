@@ -48,8 +48,10 @@ and `switch` prong items.
 
 Container declarations may only be on one line if they contain nothing but
 fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
-`union`, or a `struct` with named fields, is always one field per line, even
-when short.
+`union`, or a `struct` with named fields, that is the value of a declaration
+(`const Point = struct { ... };`) is always one field per line, even when
+short. Written in place, as in `fn step() struct { x: i16, y: i16 } {`, it
+follows the line width.
 
 Not split yet: long binary expressions (`a and b`), `if`/`else` and
 `catch`/`orelse` bodies, long string literals and comments. Line breaks
