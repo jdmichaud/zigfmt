@@ -36,8 +36,9 @@ measure: ?*Measure = null,
 /// `canContainerBeFlat`.
 decl_value: Ast.Node.OptionalIndex = .none,
 /// The chains that are not on one line, identified by the operator of their
-/// outermost node. Shared with the renders that measure, so that they break
-/// these lines too.
+/// outermost node, and the `if`, `while` and `for` that break before their
+/// body, identified by their keyword (always `.broken`). Shared with the
+/// renders that measure, so that they break these lines too.
 breaks: *std.AutoHashMapUnmanaged(Ast.TokenIndex, ChainLayout),
 /// Set while rendering the left operand of a chain, which continues it.
 chain: ?Chain = null,
@@ -1446,6 +1447,7 @@ fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
 /// respective values set to null.
 fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
     const tree = r.tree;
+    try decideBodyBreak(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr);
 
     if (while_node.label_token) |label| {
         try renderIdentifier(r, label, .none, .eagerly_unquote); // label
@@ -1497,6 +1499,7 @@ fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void 
 
     try renderThenElse(
         r,
+        while_node.ast.while_token,
         last_prefix_token,
         while_node.ast.then_expr,
         while_node.else_token,
@@ -1508,6 +1511,7 @@ fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void 
 
 fn renderThenElse(
     r: *Render,
+    keyword: Ast.TokenIndex,
     last_prefix_token: Ast.TokenIndex,
     then_expr: Ast.Node.Index,
     else_token: ?Ast.TokenIndex,
@@ -1521,7 +1525,8 @@ fn renderThenElse(
     const then_expr_first_token = tree.firstToken(then_expr);
     const indent_then_expr = !then_expr_is_block and
         (!tree.tokensOnSameLine(last_prefix_token, then_expr_first_token) or
-            tree.tokenTag(then_expr_first_token) == .multiline_string_literal_line);
+            tree.tokenTag(then_expr_first_token) == .multiline_string_literal_line or
+            r.breaks.contains(keyword));
 
     if (indent_then_expr) try ais.pushIndent(.normal);
 
@@ -1533,6 +1538,7 @@ fn renderThenElse(
         try renderToken(r, last_prefix_token, .newline);
     } else {
         try renderToken(r, last_prefix_token, .space);
+        if (!then_expr_is_block) if (r.measure) |m| m.breakPoint(r.ais.column - 1);
     }
 
     if (opt_else_expr.unwrap()) |else_expr| {
@@ -1576,6 +1582,7 @@ fn renderThenElse(
 fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
+    try decideBodyBreak(r, for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr);
 
     if (for_node.label_token) |label| {
         try renderIdentifier(r, label, .none, .eagerly_unquote); // label
@@ -1612,6 +1619,7 @@ fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
 
     try renderThenElse(
         r,
+        for_node.ast.for_token,
         cur,
         for_node.ast.then_expr,
         for_node.else_token,
@@ -2878,8 +2886,8 @@ const Space = enum {
 //
 // - `flat`: the whole list stays on the current line. Chosen when it fits
 //   together with what follows it up to the next point where the line could
-//   break (the next list's opening, `and`/`or` operator, or the end of the
-//   line).
+//   break (the next list's opening, `and`/`or` operator, body of an `if`,
+//   or the end of the line).
 // - `hug`: calls only. When the last argument is an initializer or a
 //   multiline string, the other arguments stay on the line and only the last
 //   one is split: `foo(a, .{` ... `});`.
@@ -2983,7 +2991,7 @@ fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
     const continued = if (r.chain) |chain| chain.member == node else false;
     const chain: Chain = if (continued) r.chain.? else chain: {
-        if (r.measure) |m| m.chainStart(op_token, ais.lineColumn());
+        if (r.measure) |m| m.spanStart(op_token, ais.lineColumn());
         break :chain .{ .member = node, .op_token = op_token, .layout = try decideChainLayout(r, node) };
     };
     const flat = !continued and chain.layout == .flat;
@@ -3058,6 +3066,47 @@ fn decideChainLayout(r: *Render, node: Ast.Node.Index) Error!ChainLayout {
     return layout;
 }
 
+/// Decides whether an `if`, `while` or `for` whose body is not a block
+/// breaks the line before its body, because the line doesn't fit. This comes
+/// before splitting anything in its condition or body:
+///
+///     const c = if (y > 0 and i >= n)
+///         decoded[i - n]
+///     else
+///         0;
+fn decideBodyBreak(
+    r: *Render,
+    keyword: Ast.TokenIndex,
+    then_expr: Ast.Node.Index,
+    else_expr: Ast.Node.OptionalIndex,
+) Error!void {
+    const tree = r.tree;
+    if (r.measure) |m| m.spanStart(keyword, r.ais.lineColumn());
+    if (r.flat > 0 or nodeIsBlock(tree.nodeTag(then_expr))) return;
+    // Otherwise the line breaks there already.
+    const then_first = tree.firstToken(then_expr);
+    if (!tree.tokensOnSameLine(then_first - 1, then_first)) return;
+    const unit = r.unit orelse return;
+
+    var m: Measure = .{
+        .target = keyword,
+        .last = tree.lastToken(else_expr.unwrap() orelse then_expr),
+        .hug = null,
+        .around_multiline_strings = false,
+    };
+    try measureUnit(r, unit, &m);
+    if (m.end != null and r.ais.lineColumn() + (m.tail_end - m.start) <= r.config.line_width) return;
+    try r.breaks.put(r.gpa, keyword, .broken);
+    // So does the rest of an `else if` chain.
+    var next = else_expr;
+    while (next.unwrap()) |node| {
+        const if_node = tree.fullIf(node) orelse break;
+        if (nodeIsBlock(tree.nodeTag(if_node.ast.then_expr))) break;
+        try r.breaks.put(r.gpa, if_node.ast.if_token, .broken);
+        next = if_node.ast.else_expr;
+    }
+}
+
 /// Renders `unit` with every list flat into a writer that discards the
 /// output, stopping as soon as `m` has what it needs.
 fn measureUnit(r: *Render, unit: Unit, m: *Measure) Error!void {
@@ -3090,7 +3139,7 @@ fn measureUnit(r: *Render, unit: Unit, m: *Measure) Error!void {
 const Measure = struct {
     /// Opening token of a list, or operator of a chain.
     target: Ast.TokenIndex,
-    /// Last token of a chain.
+    /// Last token of a target that is not a list.
     last: ?Ast.TokenIndex = null,
     hug: ?Ast.TokenIndex,
     around_multiline_strings: bool,
@@ -3156,10 +3205,10 @@ const Measure = struct {
         }
     }
 
-    /// Unlike a list's opening, the start of a chain is no point where the
-    /// line could break.
-    fn chainStart(m: *Measure, op_token: Ast.TokenIndex, column: usize) void {
-        if (m.state == .before and op_token == m.target) {
+    /// The start of a target that is not a list. Unlike a list's opening,
+    /// it is no point where the line could break.
+    fn spanStart(m: *Measure, token: Ast.TokenIndex, column: usize) void {
+        if (m.state == .before and token == m.target) {
             m.state = .inside;
             m.start = column;
         }
@@ -3194,6 +3243,12 @@ const Measure = struct {
                 m.row_break = false;
                 m.row_comment = false;
             } else if (!m.in_multiline_string) {
+                // The target continues after a block: what is before it
+                // must fit.
+                if (m.last != null) {
+                    m.end = column;
+                    m.tail_end = column;
+                }
                 m.state = .done;
             },
             .after => {

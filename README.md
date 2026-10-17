@@ -73,6 +73,17 @@ if (@abs(moving.x + dx - staying.x) <= 1 and
 A mixed chain breaks at its outer operator first: in `a and b or c and d`,
 after `or`.
 
+An `if`, `while` or `for` whose body is not a block breaks before its body
+when its line doesn't fit, before anything in its condition is split. With
+an `else`, each branch goes on its own line:
+
+```zig
+const corner: u8 = if (y > 0 and i >= channels)
+  decoded[(y - 1) * stride + i - channels]
+else
+  0;
+```
+
 Container declarations may only be on one line if they contain nothing but
 fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 `union`, or a `struct` with named fields, that is the value of a declaration
@@ -80,8 +91,8 @@ fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 short. Written in place, as in `fn step() struct { x: i16, y: i16 } {`, it
 follows the line width.
 
-Not split yet: other binary expressions (`a + b`, `a == b`), `if`/`else`
-and `catch`/`orelse` bodies, long string literals and comments. Line breaks
+Not split yet: other binary expressions (`a + b`, `a == b`),
+`catch`/`orelse` bodies, long string literals and comments. Line breaks
 the source has after those operators, before `.field` and in similar places
 are kept, as in `zig fmt`.
 

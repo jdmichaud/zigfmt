@@ -375,7 +375,7 @@ test "line_width: a list fits if the line fits up to the next list" {
 test "line_width: and/or chains break between operands before lists split" {
     try expectFormat(narrow,
         \\test {
-        \\  if (abs(a.x - b.x) <= 1 and abs(a.y - b.y) <= 1) return;
+        \\  return abs(a.x - b.x) <= 1 and abs(a.y - b.y) <= 1;
         \\  if (first_condition and second_condition) {
         \\    x();
         \\  }
@@ -385,8 +385,8 @@ test "line_width: and/or chains break between operands before lists split" {
         \\
     ,
         \\test {
-        \\  if (abs(a.x - b.x) <= 1 and
-        \\    abs(a.y - b.y) <= 1) return;
+        \\  return abs(a.x - b.x) <= 1 and
+        \\    abs(a.y - b.y) <= 1;
         \\  if (first_condition and
         \\    second_condition)
         \\  {
@@ -438,6 +438,46 @@ test "line_width: and/or chains keep the source's lines if they fit" {
         \\  gamma;
         \\
     );
+}
+
+test "line_width: if, while and for break before a body that doesn't fit" {
+    try expectFormat(narrow,
+        \\test {
+        \\  if (alpha_value > beta_value) return false;
+        \\  const c: u8 = if (y > 0 and i >= n) decoded[i - n] else 0;
+        \\  for (items) |item| total += item.value * 2;
+        \\  return if (a) first(alpha, beta) else if (b) second(gamma) else third;
+        \\}
+        \\
+    ,
+        \\test {
+        \\  if (alpha_value > beta_value)
+        \\    return false;
+        \\  const c: u8 = if (y > 0 and i >= n)
+        \\    decoded[i - n]
+        \\  else
+        \\    0;
+        \\  for (items) |item|
+        \\    total += item.value * 2;
+        \\  return if (a)
+        \\    first(alpha, beta)
+        \\  else if (b)
+        \\    second(gamma)
+        \\  else
+        \\    third;
+        \\}
+        \\
+    );
+    // Not before a block.
+    const blocks =
+        \\test {
+        \\  const value = if (alpha_value > beta_value) blk: {
+        \\    break :blk 1;
+        \\  } else 0;
+        \\}
+        \\
+    ;
+    try expectFormat(narrow, blocks, blocks);
 }
 
 test "line_width: comments at the end of a line don't count" {

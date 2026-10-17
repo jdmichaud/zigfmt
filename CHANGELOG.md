@@ -15,6 +15,8 @@ matching the pushed tag as the release notes.
 - `and`/`or` chains that don't fit break after every operator, before any
   list inside them is split. Line breaks the source has in them are kept if
   every line fits.
+- `if`, `while` and `for` with a body that isn't a block break before the
+  body when the line doesn't fit, before their condition is split.
 - 2-space indentation by default (`zig fmt` uses 4).
 - Options for indentation, line endings, empty lines, spaces inside braces,
   spaces around ranges and import sorting.
