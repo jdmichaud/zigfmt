@@ -496,7 +496,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 assert(tree.tokenTag(fallback_first - 1) == .keyword_catch);
                 try renderToken(r, main_token, after_op_space); // catch keyword
             }
-            if (!seperate_line and !startsWithBrace(tree, rhs)) if (r.measure) |m| m.breakPoint(ais.column - 1);
+            if (!seperate_line and !startsWithBrace(tree, rhs)) if (r.measure) |m| {
+                m.targetBreak(main_token, ais.column - 1);
+                m.breakPoint(ais.column - 1);
+            };
             try renderExpression(r, rhs, space); // fallback
             ais.popIndent();
         },
@@ -1556,7 +1559,10 @@ fn renderThenElse(
         try renderToken(r, last_prefix_token, .newline);
     } else {
         try renderToken(r, last_prefix_token, .space);
-        if (!then_expr_is_block) if (r.measure) |m| m.breakPoint(r.ais.column - 1);
+        if (!then_expr_is_block) if (r.measure) |m| {
+            m.targetBreak(keyword, r.ais.column - 1);
+            m.breakPoint(r.ais.column - 1);
+        };
     }
 
     if (opt_else_expr.unwrap()) |else_expr| {
@@ -3211,15 +3217,17 @@ fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     try renderExpression(r, lhs, .space);
     try ais.pushIndent(.binop);
     const rhs_seperate_line = switch (chain.layout) {
-        .flat => false,
+        .flat, .long => false,
         .rows => sourceLineBetween(tree, op_token, op_token + 1),
         .broken => !startsWithBrace(tree, rhs),
     } or tree.tokenTag(op_token + 1) == .multiline_string_literal_line;
     if (r.measure) |m| {
+        const op_end = ais.lineColumn() + tree.tokenSlice(op_token).len;
+        m.targetBreak(chain.op_token, op_end);
         if (rhs_seperate_line) {
             m.rowBreak(chain.op_token);
         } else if (!startsWithBrace(tree, rhs)) {
-            m.breakPoint(ais.lineColumn() + tree.tokenSlice(op_token).len);
+            m.breakPoint(op_end);
         }
     }
     try renderToken(r, op_token, if (rhs_seperate_line) .newline else .space);
@@ -3238,6 +3246,10 @@ const Chain = struct {
 const ChainLayout = enum {
     /// On one line.
     flat,
+    /// Without line breaks after its operators, but not on one line: the
+    /// line doesn't fit up to its first operator, or a block or another line
+    /// break that it forces ends the line first. Lists in it are measured.
+    long,
     /// With the line breaks the source has after operators.
     rows,
     /// One operand per line.
@@ -3245,7 +3257,9 @@ const ChainLayout = enum {
 };
 
 /// `.flat` if the source has the chain on one line, `.rows` if it breaks it
-/// after some operators, as long as each line fits. `.broken` otherwise.
+/// after some operators, as long as each line fits. `.broken` otherwise,
+/// unless the line doesn't fit up to the first operator: then breaking would
+/// not help.
 ///
 /// Until decided, chains are measured on one line whatever the source does,
 /// so that what is decided before them doesn't depend on the line breaks
@@ -3268,9 +3282,13 @@ fn decideChainLayout(r: *Render, node: Ast.Node.Index) Error!ChainLayout {
         };
         try measureUnit(r, unit, &m);
         const fits = m.end != null and r.ais.lineColumn() + (@max(m.tail_end, m.widest) - m.start) <= r.config.line_width;
-        break :layout if (fits) preferred else .broken;
+        // A chain cut by a line break is not on one line: what follows the
+        // break is measured as usual.
+        if (fits) break :layout if (m.cut and preferred == .flat) .long else preferred;
+        if (!r.helpsToBreak(m)) break :layout if (preferred == .rows) .rows else .long;
+        break :layout .broken;
     };
-    if (layout != .flat) try r.breaks.put(r.gpa, op_token, layout);
+    if (layout != .flat and layout != .long) try r.breaks.put(r.gpa, op_token, layout);
     return layout;
 }
 
@@ -3294,8 +3312,18 @@ fn breaksAfterCatch(r: *Render, node: Ast.Node.Index) Error!bool {
     };
     try measureUnit(r, unit, &m);
     if (m.end != null and r.ais.lineColumn() + (m.tail_end - m.start) <= r.config.line_width) return false;
+    if (!r.helpsToBreak(m)) return false;
     try r.breaks.put(r.gpa, catch_token, .broken);
     return true;
+}
+
+/// Whether the line fits up to the target's first point where it could
+/// break. Otherwise the target is not broken there: what is before that
+/// point is split instead, and what follows it may fit after that. So does
+/// what the line breaks inside before that point.
+fn helpsToBreak(r: *Render, m: Measure) bool {
+    const first = m.first_break orelse return false;
+    return r.ais.lineColumn() + (first - m.start) <= r.config.line_width;
 }
 
 /// Whether the expression starts with a brace that ends its line.
@@ -3336,6 +3364,7 @@ fn decideBodyBreak(
     };
     try measureUnit(r, unit, &m);
     if (m.end != null and r.ais.lineColumn() + (m.tail_end - m.start) <= r.config.line_width) return;
+    if (!r.helpsToBreak(m)) return;
     try r.breaks.put(r.gpa, keyword, .broken);
     // So does the rest of an `else if` chain.
     var next = else_expr;
@@ -3392,6 +3421,11 @@ const Measure = struct {
     /// Widest column reached before a multiline string of the target, or
     /// at the end of a row of the target chain.
     widest: usize = 0,
+    /// The target's line ends inside it, at a line break that it forces.
+    cut: bool = false,
+    /// Column after the target's first point where it could break: its first
+    /// operator, `catch |err|`, or the end of its condition.
+    first_break: ?usize = null,
     /// The next line break ends a row of the target chain.
     row_break: bool = false,
     /// A comment ends the current row, and doesn't count towards its width.
@@ -3465,6 +3499,11 @@ const Measure = struct {
         }
     }
 
+    /// A point inside the target, identified by `token`, where it could break.
+    fn targetBreak(m: *Measure, token: Ast.TokenIndex, column: usize) void {
+        if (m.state == .inside and token == m.target and m.first_break == null) m.first_break = column;
+    }
+
     /// The target chain continues on the next line.
     fn rowBreak(m: *Measure, op_token: Ast.TokenIndex) void {
         if (m.state == .inside and op_token == m.target) m.row_break = true;
@@ -3490,6 +3529,7 @@ const Measure = struct {
                 if (m.last != null) {
                     m.end = column;
                     m.tail_end = column;
+                    m.cut = true;
                 }
                 m.state = .done;
             },

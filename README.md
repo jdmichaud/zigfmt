@@ -93,6 +93,10 @@ var options = cli.fromArgs(args, &diagnostic) catch |err|
   return fail(io, err, diagnostic);
 ```
 
+None of these break where the line doesn't fit up to the break: breaking
+there would not help. What is before it is split instead, as in
+`b.option(` ... `) orelse .small;`.
+
 Container declarations may only be on one line if they contain nothing but
 fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 `union`, or a `struct` with named fields, that is the value of a declaration

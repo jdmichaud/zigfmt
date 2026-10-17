@@ -523,6 +523,28 @@ test "line_width: catch and orelse break before their fallback" {
     );
 }
 
+test "line_width: no break where the line doesn't fit up to it" {
+    try expectFormat(narrow,
+        \\test {
+        \\  const optimize = b.option(Mode, "name", "a description") orelse .small;
+        \\  if (alpha_long and beta_long and gamma_long) return x;
+        \\}
+        \\
+    ,
+        \\test {
+        \\  const optimize = b.option(
+        \\    Mode,
+        \\    "name",
+        \\    "a description",
+        \\  ) orelse .small;
+        \\  if (alpha_long and
+        \\    beta_long and
+        \\    gamma_long) return x;
+        \\}
+        \\
+    );
+}
+
 test "line_width: comments at the end of a line don't count" {
     const input =
         \\test {
