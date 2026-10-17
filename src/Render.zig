@@ -795,7 +795,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
             const layout = try decideLayout(r, .{
                 .open = lbrace,
-                .can_flat = isOneLineErrorSetDecl(tree, lbrace, rbrace),
+                .can_flat = isOneLineErrorSetDecl(tree, lbrace, rbrace) and
+                    !keepsSourceLinesBetween(tree, lbrace, rbrace),
             });
             if (layout == .broken) {
                 // Render each member on a new line.
@@ -1849,7 +1850,8 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
 
     const layout: Layout = if (lparen + 1 == rparen) .flat else try decideLayout(r, .{
         .open = lparen,
-        .can_flat = isOneLineFnProto(tree, fn_proto, lparen, rparen),
+        .can_flat = isOneLineFnProto(tree, fn_proto, lparen, rparen) and
+            !keepsSourceLinesBetween(tree, lparen, rparen),
     });
     if (layout == .flat) {
         // Render all on one line, no trailing comma.
@@ -2035,7 +2037,10 @@ fn renderSwitchCase(
         // The values are a list without brackets, identified by their first token.
         const values = switch_case.ast.values;
         const first = tree.firstToken(values[0]);
-        const layout = try decideLayout(r, .{ .open = first, .can_flat = !has_comment_before_arrow });
+        const layout = try decideLayout(r, .{
+            .open = first,
+            .can_flat = !has_comment_before_arrow and !keepsSourceLines(tree, values),
+        });
         if (layout == .broken) {
             // Render each value on a new line
             try ais.pushSpace(.comma);
@@ -2148,7 +2153,7 @@ fn renderStructInit(
     const rbrace = tree.lastToken(struct_node);
     const layout = try decideLayout(r, .{
         .open = lbrace,
-        .can_flat = !hasComment(tree, lbrace, rbrace),
+        .can_flat = !hasComment(tree, lbrace, rbrace) and !keepsSourceLines(tree, struct_init.ast.fields),
     });
     if (layout == .broken) {
         // Render one field init per line.
@@ -2222,7 +2227,7 @@ fn renderArrayInit(
     const rows = hasSourceRows(tree, elements);
     const layout = try decideLayout(r, .{
         .open = lbrace,
-        .can_flat = !rows and !hasComment(tree, lbrace, rbrace),
+        .can_flat = !rows and !hasComment(tree, lbrace, rbrace) and !keepsSourceLines(tree, elements),
     });
 
     if (layout == .flat) {
@@ -2496,7 +2501,8 @@ fn renderContainerDecl(
     const members = container_decl.ast.members;
     const layout = try decideLayout(r, .{
         .open = lbrace,
-        .can_flat = canContainerBeFlat(tree, container_decl, lbrace, rbrace, r.decl_value == container_decl_node.toOptional()),
+        .can_flat = canContainerBeFlat(tree, container_decl, lbrace, rbrace, r.decl_value == container_decl_node.toOptional()) and
+            !keepsSourceLines(tree, members),
     });
     if (layout == .flat) {
         // Print all the declarations on the same line.
@@ -2713,10 +2719,11 @@ fn renderParamList(
     const last_param = params[params.len - 1];
     const after_last_param_tok = tree.lastToken(last_param) + 1;
     const rparen = after_last_param_tok + @intFromBool(tree.tokenTag(after_last_param_tok) == .comma);
+    const keeps_lines = keepsSourceLines(tree, params);
     const layout = try decideLayout(r, .{
         .open = lparen,
-        .can_flat = !hasComment(tree, lparen, rparen),
-        .hug = hugToken(tree, last_param, lparen, rparen),
+        .can_flat = !hasComment(tree, lparen, rparen) and !keeps_lines,
+        .hug = if (keeps_lines) null else hugToken(tree, last_param, lparen, rparen),
         .around_multiline_strings = multilineStringsAreArguments(tree, params, lparen, rparen),
     });
     if (layout == .broken) {
@@ -3211,6 +3218,51 @@ fn canContainerBeFlat(
         else => {},
     };
     return isOneLineContainerDecl(tree, container_decl, lbrace, rbrace);
+}
+
+/// The most elements a list that the source splits across lines may have
+/// and still be joined into one line.
+const max_joined_elements = 3;
+
+/// Whether a list keeps the lines the source puts between its elements:
+/// when there are some and the list has more than `max_joined_elements`
+/// elements. Line breaks that multiline strings require don't count.
+fn keepsSourceLines(tree: Ast, elements: []const Ast.Node.Index) bool {
+    if (elements.len <= max_joined_elements) return false;
+    for (elements[0 .. elements.len - 1], elements[1..]) |prev, next| {
+        if (sourceLineBetween(tree, tree.lastToken(prev), tree.firstToken(next))) return true;
+    }
+    return false;
+}
+
+/// `keepsSourceLines` for a list whose elements are not all nodes, between
+/// `open` and `close`: its elements are separated by the commas outside
+/// nested brackets.
+fn keepsSourceLinesBetween(tree: Ast, open: Ast.TokenIndex, close: Ast.TokenIndex) bool {
+    var depth: usize = 0;
+    var elements: usize = 1;
+    var lines = false;
+    for (open + 1..close) |i| {
+        const token: Ast.TokenIndex = @intCast(i);
+        switch (tree.tokenTag(token)) {
+            .l_paren, .l_bracket, .l_brace => depth += 1,
+            .r_paren, .r_bracket, .r_brace => depth -= 1,
+            .comma => if (depth == 0 and token + 1 != close) {
+                elements += 1;
+                if (sourceLineBetween(tree, token - 1, token + 1)) lines = true;
+            },
+            else => {},
+        }
+    }
+    return lines and elements > max_joined_elements;
+}
+
+/// Whether the source has a line break between two adjacent elements that
+/// no multiline string requires.
+fn sourceLineBetween(tree: Ast, prev_last: Ast.TokenIndex, next_first: Ast.TokenIndex) bool {
+    return tree.tokenTag(prev_last) != .multiline_string_literal_line and
+        tree.tokenTag(next_first) != .multiline_string_literal_line and
+        !tree.tokensOnSameLine(prev_last, next_first);
 }
 
 /// Whether the source puts several elements on one line and also has

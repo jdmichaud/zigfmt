@@ -19,11 +19,14 @@ Status: proof of concept. Requires Zig 0.17.0.
 ## Differences from `zig fmt`
 
 `zig fmt` decides whether a list goes on one line from the trailing comma in
-the source. zigfmt decides from `line_width` (100 by default) and ignores how
-the source was laid out:
+the source. zigfmt decides from `line_width` (100 by default) and ignores
+trailing commas:
 
 - A list stays on one line if it fits, together with what follows it up to
   the next point where the line could break. Trailing comments don't count.
+- Except a list of more than 3 elements that the source splits across
+  lines: it stays one element per line, even if it would fit. Lists of up
+  to 3 elements are joined when they fit.
 - Otherwise it is split one element per line, ending with a comma
   (`trailing_commas`). Outer lists split before inner ones.
 - In a call whose last argument is an initializer, a container declaration

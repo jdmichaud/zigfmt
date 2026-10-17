@@ -277,7 +277,7 @@ test "line_width: lists that fit stay on one line" {
     );
 }
 
-test "line_width: the source layout and trailing commas are ignored" {
+test "line_width: trailing commas are ignored, and so are source lines in lists of up to 3 elements" {
     try expectFormat(narrow,
         \\const p = .{
         \\  .x = 1,
@@ -289,6 +289,59 @@ test "line_width: the source layout and trailing commas are ignored" {
     ,
         \\const p = .{ .x = 1, .y = 2 };
         \\const q = foo(a, b);
+        \\
+    );
+}
+
+test "line_width: lists of more than 3 elements keep the source's lines between elements" {
+    const input =
+        \\const m = .{
+        \\  a,
+        \\  b,
+        \\  c,
+        \\  d,
+        \\};
+        \\const p = .{
+        \\  .x = 1, .y = 2,
+        \\  .z = 3, .w = 4,
+        \\};
+        \\const f = foo(
+        \\  a,
+        \\  b,
+        \\  c,
+        \\  .{ .x = 1 },
+        \\);
+        \\
+    ;
+    try expectFormat(narrow, input,
+        \\const m = .{
+        \\  a,
+        \\  b,
+        \\  c,
+        \\  d,
+        \\};
+        \\const p = .{
+        \\  .x = 1,
+        \\  .y = 2,
+        \\  .z = 3,
+        \\  .w = 4,
+        \\};
+        \\const f = foo(
+        \\  a,
+        \\  b,
+        \\  c,
+        \\  .{ .x = 1 },
+        \\);
+        \\
+    );
+    // On one line in the source, they follow the width.
+    try expectFormat(narrow,
+        \\const m = .{ a, b, c, d };
+        \\const f = foo(a, b, c, .{ .x = 1 });
+        \\
+    ,
+        \\const m = .{ a, b, c, d };
+        \\const f = foo(a, b, c, .{ .x = 1 });
         \\
     );
 }
