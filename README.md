@@ -60,9 +60,10 @@ This applies to call and builtin arguments, function parameters, struct
 and array initializers, container declarations, error sets, `for` inputs
 and `switch` prong items.
 
-Chains of `and`/`or` follow the same rules, with each operand as an
-element. A chain that doesn't fit breaks after every operator before any
-list inside it is split, so conditions stay whole where they can:
+Chains of `and`/`or` stay on one line if they fit. Line breaks the source
+has after their operators are kept, as long as each line fits. Otherwise a
+chain breaks after every operator, before any list inside it is split, so
+that operands stay whole where they can:
 
 ```zig
 if (@abs(moving.x + dx - staying.x) <= 1 and

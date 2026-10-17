@@ -35,14 +35,12 @@ measure: ?*Measure = null,
 /// The value of the variable declaration being rendered. See
 /// `canContainerBeFlat`.
 decl_value: Ast.Node.OptionalIndex = .none,
-/// Operators of the `and`/`or` chains that break after every operator,
-/// identified by the operator of their outermost node. Shared with the
-/// renders that measure, so that they break these lines too.
-broken_chains: *std.AutoHashMapUnmanaged(Ast.TokenIndex, void),
-/// The left operand of the chain being rendered, if it continues the chain,
-/// and whether that chain is broken. See `renderChain`.
-chain_member: Ast.Node.OptionalIndex = .none,
-chain_broken: bool = false,
+/// The chains that are not on one line, identified by the operator of their
+/// outermost node. Shared with the renders that measure, so that they break
+/// these lines too.
+breaks: *std.AutoHashMapUnmanaged(Ast.TokenIndex, ChainLayout),
+/// Set while rendering the left operand of a chain, which continues it.
+chain: ?Chain = null,
 
 /// Aligns `asm` operands after `: `. This is alignment, not indentation, so
 /// it does not depend on `Config.indent_width`. It is not used with tabs, so
@@ -142,15 +140,15 @@ fn renderTreeLf(gpa: Allocator, w: *Writer, tree: Ast, config: Config, fixups: F
     assert(config.indent_width > 0);
     var auto_indenting_stream: AutoIndentingStream = .init(gpa, w, config);
     defer auto_indenting_stream.deinit();
-    var broken_chains: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .empty;
-    defer broken_chains.deinit(gpa);
+    var breaks: std.AutoHashMapUnmanaged(Ast.TokenIndex, ChainLayout) = .empty;
+    defer breaks.deinit(gpa);
     var r: Render = .{
         .gpa = gpa,
         .ais = &auto_indenting_stream,
         .tree = tree,
         .fixups = fixups,
         .config = config,
-        .broken_chains = &broken_chains,
+        .breaks = &breaks,
     };
 
     // Render all the line comments at the beginning of the file.
@@ -2880,7 +2878,8 @@ const Space = enum {
 //
 // - `flat`: the whole list stays on the current line. Chosen when it fits
 //   together with what follows it up to the next point where the line could
-//   break (the next list's opening or the end of the line).
+//   break (the next list's opening, `and`/`or` operator, or the end of the
+//   line).
 // - `hug`: calls only. When the last argument is an initializer or a
 //   multiline string, the other arguments stay on the line and only the last
 //   one is split: `foo(a, .{` ... `});`.
@@ -2982,50 +2981,81 @@ fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const lhs, const rhs = tree.nodeData(node).node_and_node;
     const op_token = tree.nodeMainToken(node);
 
-    var flat = false;
-    const broken = if (r.chain_member == node.toOptional()) r.chain_broken else broken: {
+    const continued = if (r.chain) |chain| chain.member == node else false;
+    const chain: Chain = if (continued) r.chain.? else chain: {
         if (r.measure) |m| m.chainStart(op_token, ais.lineColumn());
-        flat = try decideChainLayout(r, node) == .flat;
-        break :broken !flat;
+        break :chain .{ .member = node, .op_token = op_token, .layout = try decideChainLayout(r, node) };
     };
+    const flat = !continued and chain.layout == .flat;
     if (flat) r.flat += 1;
     defer if (flat) {
         r.flat -= 1;
     };
-    r.chain_member = if (tree.nodeTag(lhs) == tree.nodeTag(node)) lhs.toOptional() else .none;
-    r.chain_broken = broken;
+    r.chain = if (tree.nodeTag(lhs) == tree.nodeTag(node))
+        .{ .member = lhs, .op_token = chain.op_token, .layout = chain.layout }
+    else
+        null;
 
     try renderExpression(r, lhs, .space);
     try ais.pushIndent(.binop);
-    const rhs_seperate_line = broken or tree.tokenTag(op_token + 1) == .multiline_string_literal_line;
+    const rhs_seperate_line = switch (chain.layout) {
+        .flat => false,
+        .rows => sourceLineBetween(tree, op_token, op_token + 1),
+        .broken => true,
+    } or tree.tokenTag(op_token + 1) == .multiline_string_literal_line;
+    if (r.measure) |m| {
+        if (rhs_seperate_line) m.rowBreak(chain.op_token) else m.breakPoint(ais.lineColumn() + tree.tokenSlice(op_token).len);
+    }
     try renderToken(r, op_token, if (rhs_seperate_line) .newline else .space);
     try renderExpression(r, rhs, space);
     ais.popIndent();
 }
 
-/// `.flat` or `.broken`, like `decideLayout`. Line breaks in the source are
-/// ignored, except in chains of more than `max_joined_elements` operands.
-fn decideChainLayout(r: *Render, node: Ast.Node.Index) Error!Layout {
+const Chain = struct {
+    /// The node being rendered, or the left operand that continues it.
+    member: Ast.Node.Index,
+    /// Operator of the chain's outermost node.
+    op_token: Ast.TokenIndex,
+    layout: ChainLayout,
+};
+
+const ChainLayout = enum {
+    /// On one line.
+    flat,
+    /// With the line breaks the source has after operators.
+    rows,
+    /// One operand per line.
+    broken,
+};
+
+/// `.flat` if the source has the chain on one line, `.rows` if it breaks it
+/// after some operators, as long as each line fits. `.broken` otherwise.
+///
+/// Until decided, chains are measured on one line whatever the source does,
+/// so that what is decided before them doesn't depend on the line breaks
+/// that a previous formatting added.
+fn decideChainLayout(r: *Render, node: Ast.Node.Index) Error!ChainLayout {
     const tree = r.tree;
     const op_token = tree.nodeMainToken(node);
-    const last = tree.lastToken(node);
-    const can_flat = !hasComment(tree, tree.firstToken(node), last) and !chainKeepsSourceLines(tree, node);
-    if (r.flat > 0) return if (can_flat and !r.broken_chains.contains(op_token)) .flat else .broken;
+    const preferred: ChainLayout = if (chainHasRows(tree, node)) .rows else .flat;
+    if (r.breaks.get(op_token)) |layout| return layout;
+    if (r.measure) |m| if (m.target == op_token) return preferred;
+    if (r.flat > 0) return .flat;
 
-    if (can_flat) if (r.unit) |unit| {
+    const layout: ChainLayout = layout: {
+        const unit = r.unit orelse break :layout .broken;
         var m: Measure = .{
             .target = op_token,
-            .last = last,
+            .last = tree.lastToken(node),
             .hug = null,
             .around_multiline_strings = false,
         };
         try measureUnit(r, unit, &m);
-        if (m.end != null and r.ais.lineColumn() + (m.tail_end - m.start) <= r.config.line_width) {
-            return .flat;
-        }
+        const fits = m.end != null and r.ais.lineColumn() + (@max(m.tail_end, m.widest) - m.start) <= r.config.line_width;
+        break :layout if (fits) preferred else .broken;
     };
-    try r.broken_chains.put(r.gpa, op_token, {});
-    return .broken;
+    if (layout != .flat) try r.breaks.put(r.gpa, op_token, layout);
+    return layout;
 }
 
 /// Renders `unit` with every list flat into a writer that discards the
@@ -3046,7 +3076,7 @@ fn measureUnit(r: *Render, unit: Unit, m: *Measure) Error!void {
         .config = r.config,
         .flat = 1,
         .measure = m,
-        .broken_chains = r.broken_chains,
+        .breaks = r.breaks,
     };
     renderUnit(&sub_r, unit) catch |err| switch (err) {
         error.WriteFailed => {}, // Measurement complete.
@@ -3068,8 +3098,13 @@ const Measure = struct {
     /// Inside a multiline string of the target, whose line breaks don't end
     /// the measurement.
     in_multiline_string: bool = false,
-    /// Widest column reached before a multiline string of the target.
+    /// Widest column reached before a multiline string of the target, or
+    /// at the end of a row of the target chain.
     widest: usize = 0,
+    /// The next line break ends a row of the target chain.
+    row_break: bool = false,
+    /// A comment ends the current row, and doesn't count towards its width.
+    row_comment: bool = false,
     /// Column before the target's opening token.
     start: usize = 0,
     /// Column after the hugged element's opening token, if on the same line
@@ -3130,6 +3165,20 @@ const Measure = struct {
         }
     }
 
+    /// After the target, a point other than a list's opening where the line
+    /// could break.
+    fn breakPoint(m: *Measure, column: usize) void {
+        if (m.state == .after) {
+            m.tail_end = column;
+            m.state = .done;
+        }
+    }
+
+    /// The target chain continues on the next line.
+    fn rowBreak(m: *Measure, op_token: Ast.TokenIndex) void {
+        if (m.state == .inside and op_token == m.target) m.row_break = true;
+    }
+
     /// Called after writing each token, before the space that follows it.
     fn tokenEnd(m: *Measure, token: Ast.TokenIndex, column: usize) void {
         if (m.state == .inside and token == m.last) {
@@ -3140,7 +3189,11 @@ const Measure = struct {
 
     fn lineBreak(m: *Measure, column: usize) void {
         switch (m.state) {
-            .inside => if (!m.in_multiline_string) {
+            .inside => if (m.row_break) {
+                if (!m.row_comment) m.widest = @max(m.widest, column);
+                m.row_break = false;
+                m.row_comment = false;
+            } else if (!m.in_multiline_string) {
                 m.state = .done;
             },
             .after => {
@@ -3153,9 +3206,16 @@ const Measure = struct {
 
     /// Comments at the end of a line don't count towards its width.
     fn comment(m: *Measure, column: usize) void {
-        if (m.state == .after) {
-            m.tail_end = column;
-            m.state = .done;
+        switch (m.state) {
+            .inside => if (m.row_break and !m.row_comment) {
+                m.widest = @max(m.widest, column);
+                m.row_comment = true;
+            },
+            .after => {
+                m.tail_end = column;
+                m.state = .done;
+            },
+            .before, .done => {},
         }
     }
 };
@@ -3349,19 +3409,15 @@ fn keepsSourceLinesBetween(tree: Ast, open: Ast.TokenIndex, close: Ast.TokenInde
     return lines and elements > max_joined_elements;
 }
 
-/// `keepsSourceLines` for the operands of an `and`/`or` chain. A line break
-/// before or after an operator counts.
-fn chainKeepsSourceLines(tree: Ast, node: Ast.Node.Index) bool {
+/// Whether the source breaks the line after an operator of the chain.
+fn chainHasRows(tree: Ast, node: Ast.Node.Index) bool {
     const tag = tree.nodeTag(node);
-    var operands: usize = 1;
-    var lines = false;
     var n = node;
     while (tree.nodeTag(n) == tag) : (n = tree.nodeData(n).node_and_node[0]) {
         const op_token = tree.nodeMainToken(n);
-        operands += 1;
-        if (sourceLineBetween(tree, op_token - 1, op_token + 1)) lines = true;
+        if (sourceLineBetween(tree, op_token, op_token + 1)) return true;
     }
-    return lines and operands > max_joined_elements;
+    return false;
 }
 
 /// Whether the source has a line break between two adjacent elements that

@@ -402,25 +402,40 @@ test "line_width: and/or chains break between operands before lists split" {
         \\  );
         \\
     );
+    // A list before a chain fits if the line fits up to the first operator.
+    try expectFormat(narrow,
+        \\const x = switch (v) {
+        \\  .unsafe => allow_unsafe and !builtin.omit_frame_pointer,
+        \\};
+        \\
+    ,
+        \\const x = switch (v) {
+        \\  .unsafe => allow_unsafe and
+        \\    !builtin.omit_frame_pointer,
+        \\};
+        \\
+    );
 }
 
-test "line_width: and/or chains follow the source's lines like lists" {
-    try expectFormat(narrow,
+test "line_width: and/or chains keep the source's lines if they fit" {
+    const input =
         \\const a = first and
         \\  second;
         \\const b = first and second and
         \\  third and fourth;
         \\const c = first and // why
-        \\  second;
+        \\  second and third;
+        \\
+    ;
+    try expectFormat(narrow, input, input);
+    try expectFormat(narrow,
+        \\const d = alpha_long_name and beta_long_name and
+        \\  gamma;
         \\
     ,
-        \\const a = first and second;
-        \\const b = first and
-        \\  second and
-        \\  third and
-        \\  fourth;
-        \\const c = first and // why
-        \\  second;
+        \\const d = alpha_long_name and
+        \\  beta_long_name and
+        \\  gamma;
         \\
     );
 }
