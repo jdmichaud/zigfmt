@@ -71,7 +71,7 @@ jobs:
           exe=zigfmt
           if [ "${{ matrix.archive }}" = "zip" ]; then exe=zigfmt.exe; fi
           mkdir "$dir"
-          cp "zig-out/bin/$exe" README.md CHANGELOG.md LICENSE LICENSE-ZIG "$dir"
+          cp "zig-out/bin/$exe" README.md CONFIG.md CHANGELOG.md LICENSE LICENSE-ZIG "$dir"
           if [ "${{ matrix.archive }}" = "zip" ]; then
             zip -r "$dir.zip" "$dir"
           else

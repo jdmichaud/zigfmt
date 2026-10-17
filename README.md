@@ -14,7 +14,8 @@ zigfmt --help                       # all options
 ```
 
 Each file uses the nearest `zigfmt.zon` in its directory or above it, up
-to the first directory with a `build.zig.zon` or `build.zig`.
+to the first directory with a `build.zig.zon` or `build.zig`. See
+[CONFIG.md](CONFIG.md) for the settings.
 
 ## Installation
 
