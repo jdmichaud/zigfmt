@@ -638,6 +638,25 @@ test "line_width: a last initializer or multiline string argument is hugged" {
     );
 }
 
+test "line_width: an array of one list splits that list in place" {
+    try expectFormat(narrow,
+        \\const p = &.{.{ .name = "path", .min = 1, .max = 2 }};
+        \\const q = &.{ .{ .name = "path", .min = 1 }, .{ .name = "x" } };
+        \\
+    ,
+        \\const p = &.{.{
+        \\  .name = "path",
+        \\  .min = 1,
+        \\  .max = 2,
+        \\}};
+        \\const q = &.{
+        \\  .{ .name = "path", .min = 1 },
+        \\  .{ .name = "x" },
+        \\};
+        \\
+    );
+}
+
 test "line_width: multiline strings don't split the arguments around them" {
     try expectFormat(narrow,
         \\test {

@@ -2547,6 +2547,11 @@ fn renderArrayInit(
     const layout = try decideLayout(r, .{
         .open = lbrace,
         .can_flat = !rows and !hasComment(tree, lbrace, rbrace) and !keepsSourceLines(tree, elements),
+        // A single element that is a list is split in place: `.{.{` ... `}}`.
+        .hug = if (elements.len == 1 and isAnonymousList(tree, elements[0]))
+            hugToken(tree, elements[0], lbrace, rbrace)
+        else
+            null,
     });
 
     if (layout == .flat) {
@@ -2562,6 +2567,14 @@ fn renderArrayInit(
         for (elements, 0..) |elem, i| {
             try renderExpression(r, elem, if (i + 1 == elements.len) close_space else .comma_space);
         }
+        return renderListClose(r, lbrace, rbrace, space);
+    }
+
+    if (layout == .hug) {
+        try ais.pushIndent(.normal);
+        try renderListOpen(r, lbrace, .none);
+        try renderExpression(r, elements[0], .none);
+        ais.popIndent();
         return renderListClose(r, lbrace, rbrace, space);
     }
 
@@ -3195,9 +3208,10 @@ const Space = enum {
 //   together with what follows it up to the next point where the line could
 //   break (the next list's opening, `and`/`or` operator, body of an `if`,
 //   or the end of the line).
-// - `hug`: calls only. When the last argument is an initializer or a
-//   multiline string, the other arguments stay on the line and only the last
-//   one is split: `foo(a, .{` ... `});`.
+// - `hug`: calls, and arrays of one element. When the last argument is an
+//   initializer or a multiline string, the other arguments stay on the line
+//   and only the last one is split: `foo(a, .{` ... `});`. An array whose
+//   only element is an anonymous list splits that list: `.{.{` ... `}}`.
 // - `broken`: one element per line.
 //
 // In calls, multiline strings don't prevent `flat` or `hug`: the arguments
@@ -3734,7 +3748,12 @@ fn braceSpace(r: *const Render) Space {
 /// Like `braceSpace`, but none next to an element that is itself an
 /// anonymous list: `.{.{ 1, 2 }, .{ 3, 4 }}`. See `renderArrayInit`.
 fn elementBraceSpace(r: *const Render, element: Ast.Node.Index) Space {
-    return switch (r.tree.nodeTag(element)) {
+    return if (isAnonymousList(r.tree, element)) .none else r.braceSpace();
+}
+
+/// Whether `node` is an initializer without a type: `.{ ... }`.
+fn isAnonymousList(tree: Ast, node: Ast.Node.Index) bool {
+    return switch (tree.nodeTag(node)) {
         .array_init_dot,
         .array_init_dot_comma,
         .array_init_dot_two,
@@ -3743,8 +3762,8 @@ fn elementBraceSpace(r: *const Render, element: Ast.Node.Index) Space {
         .struct_init_dot_comma,
         .struct_init_dot_two,
         .struct_init_dot_two_comma,
-        => .none,
-        else => r.braceSpace(),
+        => true,
+        else => false,
     };
 }
 

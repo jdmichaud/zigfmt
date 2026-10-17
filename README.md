@@ -40,6 +40,16 @@ trailing commas:
   });
   ```
 
+- Likewise, an array initializer whose only element is an anonymous list
+  keeps the braces together and only splits that list:
+
+  ```zig
+  .positionals = &.{.{
+    .name = "ASSET_PATH",
+    .min = 1,
+  }},
+  ```
+
 - Multiline strings among the arguments of a call don't split it: the
   arguments after a multiline string follow it on the next line, as in
   `zig fmt`. Only the lines outside the string must fit:

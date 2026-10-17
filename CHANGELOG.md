@@ -11,7 +11,8 @@ matching the pushed tag as the release notes.
   project root, and by command line options.
 - Lists laid out by `line_width` (100 by default) rather than by trailing
   commas in the source; trailing commas added to split lists. Lists of more
-  than 3 elements that the source splits across lines stay split.
+  than 3 elements that the source splits across lines stay split. An
+  array whose only element is a list splits that list in place: `.{.{`.
 - `and`/`or` chains that don't fit break after every operator, before any
   list inside them is split. Line breaks the source has in them are kept if
   every line fits.
