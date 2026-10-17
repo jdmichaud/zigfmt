@@ -62,6 +62,20 @@ pub fn check(config: Config) ?[]const u8 {
     return null;
 }
 
+/// Whether `source` has only whitespace and comments. Such a file counts as
+/// no config file, so that `zigfmt --print-config > zigfmt.zon` works: the
+/// shell creates the file before zigfmt reads it.
+pub fn isEmpty(source: [:0]const u8) bool {
+    var tokenizer: std.zig.Tokenizer = .init(source);
+    return tokenizer.next().tag == .eof;
+}
+
+test isEmpty {
+    try std.testing.expect(isEmpty(""));
+    try std.testing.expect(isEmpty(" \n// nothing yet\n"));
+    try std.testing.expect(!isEmpty(".{}"));
+}
+
 /// Parses the contents of a `zigfmt.zon` file. Omitted fields keep their
 /// defaults and unknown fields are an error. The result is not validated;
 /// see `check`.

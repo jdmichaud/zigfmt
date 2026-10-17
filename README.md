@@ -107,6 +107,15 @@ directory. `--config <path>` uses one file for everything; `--no-config`
 uses the defaults. Every field can be overridden on the command line, for
 example `--line-width 120` or `--sort-imports true`.
 
+To create a config file with the settings that currently apply:
+
+```sh
+zigfmt --print-config > zigfmt.zon
+```
+
+This works because an empty `zigfmt.zon`, or one with only comments, is
+ignored. The output is formatted with the config it prints.
+
 Every field is optional:
 
 ```zig

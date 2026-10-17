@@ -179,7 +179,10 @@ pub fn main(init: std.process.Init) !u8 {
     if (args.getSwitch("no-config")) {
         ctx.configs.fixed = ctx.configs.resolve(null, "--no-config");
     } else if (try args.getOption([]const u8, "config")) |path| {
-        const config = try loadConfig(gpa, io, path) orelse std.process.fatal("{s}: config file not found", .{path});
+        const config = loadConfig(gpa, io, path) catch |err| switch (err) {
+            error.FileNotFound => std.process.fatal("{s}: config file not found", .{path}),
+            else => |e| return e,
+        };
         ctx.configs.fixed = ctx.configs.resolve(config, path);
     }
 
@@ -188,8 +191,19 @@ pub fn main(init: std.process.Init) !u8 {
             try ctx.configs.forDir(ctx.configs.cwd)
         else
             try ctx.configs.forPath(paths[0]);
-        try std.zon.stringify.serialize(config, .{}, ctx.stdout);
-        try ctx.stdout.writeByte('\n');
+        // Formatted with itself, so that it can be saved as a zigfmt.zon.
+        var zon: Io.Writer.Allocating = .init(gpa);
+        defer zon.deinit();
+        try std.zon.stringify.serialize(config, .{}, &zon.writer);
+        try zon.writer.writeByte('\n');
+        const source = try zon.toOwnedSliceSentinel(0);
+        defer gpa.free(source);
+        const formatted = zigfmt.format(gpa, source, .zon, config) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            error.ParseFailed => unreachable,
+        };
+        defer gpa.free(formatted);
+        try ctx.stdout.writeAll(formatted);
         return 0;
     }
 
@@ -279,7 +293,11 @@ const Configs = struct {
         const gpa = configs.gpa;
         const config_path = try std.fs.path.join(gpa, &.{ dir, Config.file_name });
         defer gpa.free(config_path);
-        const config = if (try loadConfig(gpa, configs.io, config_path)) |file_config|
+        const loaded = loadConfig(gpa, configs.io, config_path) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => |e| return e,
+        };
+        const config = if (loaded) |file_config|
             configs.resolve(file_config, config_path)
         else if (try isProjectRoot(configs.io, gpa, dir))
             configs.resolve(null, config_path)
@@ -304,13 +322,15 @@ fn isProjectRoot(io: Io, gpa: Allocator, dir: []const u8) !bool {
     return false;
 }
 
-/// Returns null if the file does not exist. Exits on invalid contents.
-fn loadConfig(gpa: Allocator, io: Io, path: []const u8) !?Config {
+/// Returns null if the file is empty (see `Config.isEmpty`). Exits on
+/// invalid contents.
+fn loadConfig(gpa: Allocator, io: Io, path: []const u8) error{ OutOfMemory, FileNotFound }!?Config {
     const source = Dir.cwd().readFileAllocOptions(io, path, gpa, .limited(1 << 20), .of(u8), 0) catch |err| switch (err) {
-        error.FileNotFound => return null,
+        error.FileNotFound => return error.FileNotFound,
         else => std.process.fatal("{s}: unable to read config: {t}", .{ path, err }),
     };
     defer gpa.free(source);
+    if (Config.isEmpty(source)) return null;
 
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
     defer arena_state.deinit();
