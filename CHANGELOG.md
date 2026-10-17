@@ -5,6 +5,8 @@ matching the pushed tag as the release notes.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-17
+
 ### Added
 - Formatter based on Zig 0.17.0's `zig fmt`, configured by `zigfmt.zon`
   files found next to each file or in its parent directories, up to the
