@@ -603,19 +603,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .sub,
         .sub_wrap,
         .sub_sat,
-        => {
-            const lhs, const rhs = tree.nodeData(node).node_and_node;
-            try renderExpression(r, lhs, .space);
-            const op_token = tree.nodeMainToken(node);
-            try ais.pushIndent(.binop);
-            const rhs_seperate_line = !tree.tokensOnSameLine(op_token, op_token + 1) or
-                tree.tokenTag(op_token + 1) == .multiline_string_literal_line;
-            try renderToken(r, op_token, if (rhs_seperate_line) .newline else .space);
-            try renderExpression(r, rhs, space);
-            ais.popIndent();
-        },
-
-        .bool_and, .bool_or, .@"orelse" => try renderChain(r, node, space),
+        .bool_and,
+        .bool_or,
+        .@"orelse",
+        => try renderChain(r, node, space),
 
         .assign_destructure => {
             const full = tree.assignDestructure(node);
@@ -719,7 +710,10 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const inner_space = if (one_line) Space.none else Space.newline;
             try ais.pushIndent(.normal);
             try renderToken(r, lbracket, inner_space); // [
+            // On one line as `rendersMultiline` found.
+            if (one_line) r.flat += 1;
             try renderExpression(r, rhs, inner_space);
+            if (one_line) r.flat -= 1;
             ais.popIndent();
             return renderToken(r, rbracket, space); // ]
         },
@@ -1065,6 +1059,9 @@ fn rendersMultiline(r: *const Render, node: Ast.Node.Index, prefix_width: usize)
     var sub_r = r.*;
     sub_r.ais = &sub_ais;
     sub_r.measure = null;
+    // Lists and chains are on one line, so that only the line breaks that
+    // the node forces count, and nothing is decided for the real render.
+    sub_r.flat += 1;
 
     renderExpression(&sub_r, node, .none) catch |err| return switch (err) {
         error.OutOfMemory => |e| return e,
@@ -1091,11 +1088,14 @@ fn renderArrayType(
     const inner_space = if (one_line) Space.none else Space.newline;
     try ais.pushIndent(.normal);
     try renderToken(r, array_type.ast.lbracket, inner_space); // lbracket
+    // On one line as `rendersMultiline` found.
+    if (one_line) r.flat += 1;
     try renderExpression(r, array_type.ast.elem_count, inner_space);
     if (array_type.ast.sentinel.unwrap()) |sentinel| {
         try renderToken(r, tree.firstToken(sentinel) - 1, inner_space); // colon
         try renderExpression(r, sentinel, inner_space);
     }
+    if (one_line) r.flat -= 1;
     ais.popIndent();
     try renderToken(r, rbracket, .none); // rbracket
     return renderExpression(r, array_type.ast.elem_type, space);
@@ -3206,8 +3206,8 @@ const Space = enum {
 //
 // - `flat`: the whole list stays on the current line. Chosen when it fits
 //   together with what follows it up to the next point where the line could
-//   break (the next list's opening, `and`/`or` operator, body of an `if`,
-//   or the end of the line).
+//   break (the next list's opening, binary operator, body of an `if`, or
+//   the end of the line).
 // - `hug`: calls, and arrays of one element. When the last argument is an
 //   initializer or a multiline string, the other arguments stay on the line
 //   and only the last one is split: `foo(a, .{` ... `});`. An array whose
@@ -3218,8 +3218,8 @@ const Space = enum {
 // after one continue on the line after it, and only the lines outside the
 // strings must fit.
 //
-// `and`/`or` chains are laid out the same way, with a line break after
-// every operator when broken (see `renderChain`).
+// Chains of binary operators are laid out the same way, with a line break
+// after every operator when broken (see `renderChain`).
 //
 // To know whether a list fits, the enclosing `Unit` is rendered again with
 // every list flat while a `Measure` records where the list starts and ends.
@@ -3317,12 +3317,13 @@ fn decideLayout(r: *Render, list: ListInfo) Error!Layout {
     return .broken;
 }
 
-/// Renders an `and`, `or` or `orelse` chain such as `a and b and c`, a
-/// left-nested series of nodes with the same tag. When it doesn't fit, it
-/// breaks after every operator, before any list inside it is split, so that
-/// operands stay on one line where they can. Mixed chains break at the outer
-/// operator first: in `a and b or c`, at `or`. Blocks and `switch`es stay on
-/// the operator's line: `x orelse {`.
+/// Renders a chain of binary operators such as `a + b - c` or `a and b`, a
+/// left-nested series of nodes with the same precedence (see
+/// `chainPrecedence`). When it doesn't fit, it breaks after every operator,
+/// before any list inside it is split, so that operands stay on one line
+/// where they can. Chains of lower precedence break first: in
+/// `a and b or c`, at `or`, and in `a * b + c`, at `+`. Blocks and
+/// `switch`es stay on the operator's line: `x orelse {`.
 fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
@@ -3339,7 +3340,7 @@ fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     defer if (flat) {
         r.flat -= 1;
     };
-    r.chain = if (tree.nodeTag(lhs) == tree.nodeTag(node))
+    r.chain = if (chainPrecedence(tree.nodeTag(lhs)) == chainPrecedence(tree.nodeTag(node)))
         .{ .member = lhs, .op_token = chain.op_token, .layout = chain.layout }
     else
         null;
@@ -3883,11 +3884,26 @@ fn keepsSourceLinesBetween(tree: Ast, open: Ast.TokenIndex, close: Ast.TokenInde
     return lines and elements > max_joined_elements;
 }
 
+/// The precedence of the binary operators that `renderChain` renders, as
+/// parsed by `std.zig.Ast`. `catch` is rendered on its own.
+fn chainPrecedence(tag: Ast.Node.Tag) ?u8 {
+    return switch (tag) {
+        .bool_or => 10,
+        .bool_and => 20,
+        .equal_equal, .bang_equal, .less_than, .greater_than, .less_or_equal, .greater_or_equal => 30,
+        .bit_and, .bit_xor, .bit_or, .@"orelse" => 40,
+        .shl, .shl_sat, .shr => 50,
+        .add, .sub, .array_cat, .add_wrap, .sub_wrap, .add_sat, .sub_sat => 60,
+        .merge_error_sets, .mul, .div, .mod, .mul_wrap, .mul_sat => 70,
+        else => null,
+    };
+}
+
 /// Whether the source breaks the line after an operator of the chain.
 fn chainHasRows(tree: Ast, node: Ast.Node.Index) bool {
-    const tag = tree.nodeTag(node);
+    const precedence = chainPrecedence(tree.nodeTag(node));
     var n = node;
-    while (tree.nodeTag(n) == tag) : (n = tree.nodeData(n).node_and_node[0]) {
+    while (chainPrecedence(tree.nodeTag(n)) == precedence) : (n = tree.nodeData(n).node_and_node[0]) {
         const op_token = tree.nodeMainToken(n);
         if (sourceLineBetween(tree, op_token, op_token + 1)) return true;
     }

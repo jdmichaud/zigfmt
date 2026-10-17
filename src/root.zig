@@ -372,7 +372,7 @@ test "line_width: a list fits if the line fits up to the next list" {
     );
 }
 
-test "line_width: and/or chains break between operands before lists split" {
+test "line_width: chains of operators break between operands before lists split" {
     try expectFormat(narrow,
         \\test {
         \\  return abs(a.x - b.x) <= 1 and abs(a.y - b.y) <= 1;
@@ -382,6 +382,8 @@ test "line_width: and/or chains break between operands before lists split" {
         \\}
         \\const ok = alpha and beta or gamma and delta;
         \\const long = alpha and check(first_argument, second_argument);
+        \\const total = abs(a.x - b.x) + abs(a.y - b.y);
+        \\const v = alpha * beta + gamma * delta_long;
         \\
     ,
         \\test {
@@ -399,6 +401,10 @@ test "line_width: and/or chains break between operands before lists split" {
         \\    first_argument,
         \\    second_argument,
         \\  );
+        \\const total = abs(a.x - b.x) +
+        \\  abs(a.y - b.y);
+        \\const v = alpha * beta +
+        \\  gamma * delta_long;
         \\
     );
     // A list before a chain fits if the line fits up to the first operator.
@@ -416,7 +422,7 @@ test "line_width: and/or chains break between operands before lists split" {
     );
 }
 
-test "line_width: and/or chains keep the source's lines if they fit" {
+test "line_width: chains keep the source's lines if they fit" {
     const input =
         \\const a = first and
         \\  second;
@@ -470,7 +476,7 @@ test "line_width: if, while and for break before a body that doesn't fit" {
     // Not before a block.
     const blocks =
         \\test {
-        \\  const value = if (alpha_value > beta_value) blk: {
+        \\  const value = if (alpha_value_is_big) blk: {
         \\    break :blk 1;
         \\  } else 0;
         \\}

@@ -13,8 +13,9 @@ matching the pushed tag as the release notes.
   commas in the source; trailing commas added to split lists. Lists of more
   than 3 elements that the source splits across lines stay split. An
   array whose only element is a list splits that list in place: `.{.{`.
-- `and`/`or` chains that don't fit break after every operator, before any
-  list inside them is split. Line breaks the source has in them are kept if
+- Chains of binary operators of the same precedence (`a + b - c`,
+  `a and b`) that don't fit break after every operator, before any list
+  inside them is split. Line breaks the source has in them are kept if
   every line fits.
 - `if`, `while` and `for` with a body that isn't a block break before the
   body when the line doesn't fit, before their condition is split.

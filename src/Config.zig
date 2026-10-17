@@ -21,8 +21,9 @@ line_ending: LineEnding = .lf,
 /// Maximum number of consecutive empty lines kept from the source.
 /// Empty lines are never added, only collapsed.
 max_blank_lines: u8 = 1,
-/// Lists (arguments, parameters, initializers, ...) and `and`/`or` chains
-/// that don't fit in this many columns are split one element per line.
+/// Lists (arguments, parameters, initializers, ...) and chains of binary
+/// operators that don't fit in this many columns are split one element per
+/// line.
 /// Lines without one to split can still be longer.
 line_width: u16 = 100,
 /// End lists that are split one element per line with a comma.

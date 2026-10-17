@@ -70,18 +70,19 @@ This applies to call and builtin arguments, function parameters, struct
 and array initializers, container declarations, error sets, `for` inputs
 and `switch` prong items.
 
-Chains of `and`/`or` stay on one line if they fit. Line breaks the source
-has after their operators are kept, as long as each line fits. Otherwise a
-chain breaks after every operator, before any list inside it is split, so
-that operands stay whole where they can:
+Binary operators of the same precedence form chains: `a + b - c`,
+`a and b and c`. A chain stays on one line if it fits. Line breaks the
+source has after its operators are kept, as long as each line fits.
+Otherwise it breaks after every operator, before any list inside it is
+split, so that operands stay whole where they can:
 
 ```zig
-if (@abs(moving.x + dx - staying.x) <= 1 and
-  @abs(moving.y + dy - staying.y) <= 1) return false;
+total += @abs(at.x + here.x - origins[other].x - there.x) +
+  @abs(at.y + here.y - origins[other].y - there.y);
 ```
 
-A mixed chain breaks at its outer operator first: in `a and b or c and d`,
-after `or`.
+Chains of lower precedence break first: in `a and b or c and d`, after
+`or`, and in `a * b + c * d`, after `+`.
 
 An `if`, `while` or `for` whose body is not a block breaks before its body
 when its line doesn't fit, before anything in its condition is split. With
@@ -114,9 +115,9 @@ fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 short. Written in place, as in `fn step() struct { x: i16, y: i16 } {`, it
 follows the line width.
 
-Not split yet: other binary expressions (`a + b`, `a == b`), long string
-literals and comments. Line breaks the source has after those operators,
-before `.field` and in similar places are kept, as in `zig fmt`.
+Not split: what is in brackets (`a[i + 1]`, `[n * 2]u8`), long string
+literals and comments. Line breaks the source has before `.field` and in
+similar places are kept, as in `zig fmt`.
 
 Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
 spaces like `.{ a, b }` (`zig fmt` writes `.{x}`) but none next to an
@@ -228,7 +229,7 @@ Every field is optional:
 | `indent_style`        | `.spaces`   | `.spaces` or `.tabs` (one tab per level).                                   |
 | `line_ending`         | `.lf`       | `.lf` or `.crlf`.                                                           |
 | `max_blank_lines`     | `1`         | Longest run of empty lines kept from the source. Never adds new ones.       |
-| `line_width`          | `100`       | Lists and `and`/`or` chains that don't fit in this many columns are split.  |
+| `line_width`          | `100`       | Lists and chains of operators that don't fit in this many columns are split. |
 | `trailing_commas`     | `true`      | End split lists with a comma.                                               |
 | `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Not next to an element that is a list: `.{.{ 1, 2 }}`, unless the other brace has a space: `.{ x, .{ 1, 2 } }`. |
 | `range_spacing`       | `.never`    | `.never` (`a..b`), `.always` (`a .. b`), or `.zig_fmt` (spaces only in slices with compound operands). |
