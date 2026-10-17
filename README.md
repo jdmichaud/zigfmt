@@ -188,9 +188,9 @@ zigfmt --version                  # e.g. zigfmt 0.1.0+1a2b3c4d5
 `.zig` and `.zon` files are formatted. Directories are searched
 recursively, skipping hidden directories, `zig-out`, `zig-pkg`,
 `zig-cache` and what `.gitignore` files ignore: those inside the
-directory, and those of its parents up to the repository root. Files
-named on the command line are always formatted. Run `zigfmt --help` for
-all options.
+directory, and those of its parents up to the repository root. Symbolic
+links found there are not followed. Files named on the command line are
+always formatted. Run `zigfmt --help` for all options.
 
 The exit code is 1 if a file has syntax errors or fails a check, or with
 `--check` if a file is not formatted.

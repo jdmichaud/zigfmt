@@ -383,12 +383,24 @@ fn formatPath(ctx: *Context, path: []const u8) !void {
 
     var walker = try dir.walkSelectively(gpa);
     defer walker.deinit();
-    while (try walker.next(ctx.io)) |entry| {
+    while (try walker.next(ctx.io)) |next| {
+        var entry = next;
         ignore_path.clearRetainingCapacity();
         if (prefix.len != 0) try ignore_path.print(gpa, "{s}/", .{prefix});
         try ignore_path.appendSlice(gpa, entry.path);
         std.mem.replaceScalar(u8, ignore_path.items, std.fs.path.sep, '/');
 
+        // Some file systems, such as sshfs, often don't say what an entry
+        // is. Links stay links.
+        if (entry.kind == .unknown) {
+            const entry_stat = entry.dir.statFile(ctx.io, entry.basename, .{ .follow_symlinks = false }) catch |err| {
+                const display_path = try std.fs.path.join(gpa, &.{ path, entry.path });
+                defer gpa.free(display_path);
+                try reportError(ctx, display_path, err);
+                continue;
+            };
+            entry.kind = entry_stat.kind;
+        }
         switch (entry.kind) {
             .directory => if (!skipDir(entry.basename) and !ignore.isIgnored(ignore_path.items, true)) {
                 try walker.enter(ctx.io, entry);
@@ -404,6 +416,10 @@ fn formatPath(ctx: *Context, path: []const u8) !void {
                 defer ctx.gpa.free(display_path);
                 try formatFile(ctx, entry.dir, entry.basename, display_path);
             },
+            // Not followed: the directory or file a link points to may be
+            // anywhere, or contain the link. Paths given on the command line
+            // are followed.
+            .sym_link => {},
             else => {},
         }
     }
