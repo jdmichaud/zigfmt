@@ -24,7 +24,9 @@ matching the pushed tag as the release notes.
   spaces around ranges and import sorting.
 - An error for `@import` inside functions, tests and `comptime` blocks.
 - Blocks around the branches of `if` statements, unless they are jumps
-  (`return`, `break`, `continue`, `unreachable`, `@panic`...): `if_blocks`.
+  (`return`, `break`, `continue`, `unreachable`, `@panic`...), and around
+  the bodies of loops: `if_blocks` (`.always`, `.except_jumps` or
+  `.never`) and `loop_blocks`.
 - `.gitignore` support when searching directories.
 - `zig build install` to `~/.local/bin`, or `-Dprefix`.
 - `--version`: the version in `build.zig.zon` and the commit.

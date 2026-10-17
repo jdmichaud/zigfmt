@@ -111,12 +111,14 @@ before `.field` and in similar places are kept, as in `zig fmt`.
 Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
 spaces like `.{ a, b }` (`zig fmt` writes `.{x}`) but none next to an
 element that is itself a list (`.{.{ 1, 0 }, .{ 0, 1 }}`), `a..b` without
-spaces in all ranges, blocks around `if` branches (below), and an error for
-`@import` inside functions, tests and `comptime` blocks.
+spaces in all ranges, blocks around `if` and loop bodies (below), and an
+error for `@import` inside functions, tests and `comptime` blocks.
 
-The branches of an `if` statement go in blocks, unless they are jumps
-(`return`, `break`, `continue`, `unreachable`, `@panic`, `@trap`,
-`@compileError`). When one branch needs a block, all of them get one:
+With `.if_blocks = .except_jumps`, the default, the branches of an `if`
+statement go in blocks unless they are jumps (`return`, `break`,
+`continue`, `unreachable`, `@panic`, `@trap`, `@compileError`). When one
+branch needs a block, the others get one too. `.always` puts every branch
+in a block, jumps included, and `.never` leaves them as they are:
 
 ```zig
 if (y > 0 and rows[y - 1][x] != '.') {
@@ -125,8 +127,9 @@ if (y > 0 and rows[y - 1][x] != '.') {
 if (done) return;
 ```
 
-`if` expressions (`const x = if (c) a else b;`), loops and branches with
-comments are left as they are.
+The bodies of `while` and `for` statements always go in blocks
+(`loop_blocks`). `if` and loop expressions (`const x = if (c) a else b;`)
+and branches with comments are left as they are.
 
 `zig fmt` doesn't undo any of this: with `.indent_width = 4`, running it on
 zigfmt's output keeps every line break and indentation.
@@ -203,7 +206,8 @@ Every field is optional:
 | `trailing_commas`     | `true`      | End split lists with a comma.                                               |
 | `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Never next to an element that is a list: `.{.{ 1, 2 }}`. |
 | `range_spacing`       | `.never`    | `.never` (`a..b`), `.always` (`a .. b`), or `.zig_fmt` (spaces only in slices with compound operands). |
-| `if_blocks`           | `true`      | Put the branches of `if` statements in blocks, unless they are jumps (`return`, `break`, ...). |
+| `if_blocks`           | `.except_jumps` | Which branches of `if` statements go in blocks: `.always`, `.except_jumps` (not `return`, `break`, ...) or `.never`. |
+| `loop_blocks`         | `true`      | Put the bodies of `while` and `for` statements in blocks.                   |
 | `sort_imports`        | `false`     | Sort runs of consecutive top-level `const x = @import(...);` by path. A run ends at an empty line, a comment or another declaration. |
 | `nested_imports`      | `.forbid`   | `.forbid` reports `@import` inside functions, tests and `comptime` blocks as an error. The file is still formatted. |
 
@@ -228,7 +232,7 @@ zig build corpus -Doptimize=ReleaseSafe -- /path/to/zig/lib other/dirs
 import sorting and checks, `.gitignore` matching.
 
 `corpus` formats every `.zig`/`.zon` file under the given directories with
-16 configs and checks that:
+17 configs and checks that:
 
 - the output parses, and formatting it again changes nothing;
 - no line ends with whitespace, outside multiline strings;

@@ -73,7 +73,8 @@ const override_help = .{
     .trailing_commas = "End split lists with a comma",
     .space_inside_braces = "Write .{ a, b } rather than .{a, b}",
     .range_spacing = "Spaces around .. and ... (zig_fmt: only in slices with compound operands)",
-    .if_blocks = "Put if branches in blocks, unless they are return, break, continue...",
+    .if_blocks = "Which if branches go in blocks (except_jumps: all but return, break, continue...)",
+    .loop_blocks = "Put while and for bodies in blocks",
     .sort_imports = "Sort runs of top-level @imports by path",
     .nested_imports = "Report @import inside functions, tests and comptime blocks as errors",
 };

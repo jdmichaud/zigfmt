@@ -441,7 +441,7 @@ test "line_width: and/or chains keep the source's lines if they fit" {
 }
 
 test "line_width: if, while and for break before a body that doesn't fit" {
-    try expectFormat(narrow,
+    try expectFormat(.{ .line_width = 40, .loop_blocks = false },
         \\test {
         \\  if (alpha_value > beta_value) return false;
         \\  const c: u8 = if (y > 0 and i >= n) decoded[i - n] else 0;
@@ -889,12 +889,16 @@ test "if_blocks" {
         \\  if (p) for (a) |x| switch (x) {
         \\    else => {},
         \\  };
+        \\  if (q) return else |err| switch (err) {
+        \\    else => {},
+        \\  }
+        \\
+        \\  // after the switch
         \\  const v = if (l) a() else b();
-        \\  while (m) i += 1;
         \\}
         \\
     ;
-    try expectFormat(.default, input,
+    try expectFormat(.{ .loop_blocks = false }, input,
         \\test {
         \\  if (a) {
         \\    x = 1;
@@ -940,12 +944,112 @@ test "if_blocks" {
         \\      else => {},
         \\    };
         \\  }
+        \\  if (q) {
+        \\    return;
+        \\  } else |err| {
+        \\    switch (err) {
+        \\      else => {},
+        \\    }
+        \\  }
+        \\
+        \\  // after the switch
         \\  const v = if (l) a() else b();
-        \\  while (m) i += 1;
         \\}
         \\
     );
-    try expectFormat(.{ .if_blocks = false }, input, input);
+    try expectFormat(.{ .if_blocks = .never, .loop_blocks = false }, input, input);
+    // With `.always`, jumps get blocks too.
+    try expectFormat(.{ .if_blocks = .always },
+        \\test {
+        \\  if (b) return;
+        \\  if (g) return else if (h) foo();
+        \\  const v = if (l) a() else b();
+        \\  if (m) return; // stays in the block
+        \\
+        \\  // comes after it
+        \\  y();
+        \\}
+        \\
+    ,
+        \\test {
+        \\  if (b) {
+        \\    return;
+        \\  }
+        \\  if (g) {
+        \\    return;
+        \\  } else if (h) {
+        \\    foo();
+        \\  }
+        \\  const v = if (l) a() else b();
+        \\  if (m) {
+        \\    return; // stays in the block
+        \\  }
+        \\
+        \\  // comes after it
+        \\  y();
+        \\}
+        \\
+    );
+}
+
+test "loop_blocks" {
+    const input =
+        \\test {
+        \\  while (k) i += 1;
+        \\  while (i < n) : (i += 1) total += x[i];
+        \\  for (a) |x| sum += x;
+        \\  while (it.next()) |x| continue;
+        \\  outer: for (a) |x| foo(x) else bar();
+        \\  for (a) |x| switch (x) {
+        \\    else => {},
+        \\  };
+        \\  for (a) |f| for (f.bars) |on| check(on);
+        \\  const v = for (a) |x| {
+        \\    if (x) break true;
+        \\  } else false;
+        \\  while (k) // why
+        \\    i += 1;
+        \\}
+        \\
+    ;
+    try expectFormat(.default, input,
+        \\test {
+        \\  while (k) {
+        \\    i += 1;
+        \\  }
+        \\  while (i < n) : (i += 1) {
+        \\    total += x[i];
+        \\  }
+        \\  for (a) |x| {
+        \\    sum += x;
+        \\  }
+        \\  while (it.next()) |x| {
+        \\    continue;
+        \\  }
+        \\  outer: for (a) |x| {
+        \\    foo(x);
+        \\  } else {
+        \\    bar();
+        \\  }
+        \\  for (a) |x| {
+        \\    switch (x) {
+        \\      else => {},
+        \\    }
+        \\  }
+        \\  for (a) |f| {
+        \\    for (f.bars) |on| {
+        \\      check(on);
+        \\    }
+        \\  }
+        \\  const v = for (a) |x| {
+        \\    if (x) break true;
+        \\  } else false;
+        \\  while (k) // why
+        \\    i += 1;
+        \\}
+        \\
+    );
+    try expectFormat(.{ .loop_blocks = false }, input, input);
 }
 
 test "range_spacing" {

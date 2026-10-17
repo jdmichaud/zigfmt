@@ -42,8 +42,8 @@ decl_value: Ast.Node.OptionalIndex = .none,
 breaks: *std.AutoHashMapUnmanaged(Ast.TokenIndex, ChainLayout),
 /// Set while rendering the left operand of a chain, which continues it.
 chain: ?Chain = null,
-/// Set while rendering the `else if` of an `if` statement, which is a
-/// statement too. See `Config.if_blocks`.
+/// Set while rendering the `else if` of an `if`, `while` or `for`
+/// statement, which is a statement too. See `usesBlocks`.
 else_if: ?ElseIf = null,
 
 /// Aligns `asm` operands after `: `. This is alignment, not indentation, so
@@ -1454,8 +1454,11 @@ fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
 /// respective values set to null.
 fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
     const tree = r.tree;
-    const statement = r.ifStatement(while_node.ast.while_token);
-    const blocks = if (statement) |inherited| usesBlocks(r, while_node, inherited) else false;
+    const statement = r.branchStatement(while_node.ast.while_token);
+    const blocks = if (statement) |inherited|
+        usesBlocks(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr, inherited)
+    else
+        false;
     if (!blocks) try decideBodyBreak(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr);
 
     if (while_node.label_token) |label| {
@@ -1531,7 +1534,8 @@ fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void 
 fn renderThenElse(
     r: *Render,
     keyword: Ast.TokenIndex,
-    /// Whether this is an `if` statement, whose `else if` is one too.
+    /// Whether this is an `if`, `while` or `for` statement, whose `else if`
+    /// is one too.
     statement: bool,
     last_prefix_token: Ast.TokenIndex,
     then_expr: Ast.Node.Index,
@@ -1608,73 +1612,111 @@ fn renderThenElse(
 
 const ElseIf = struct {
     if_token: Ast.TokenIndex,
-    /// Whether the `if` statement it continues uses blocks.
+    /// Whether the statement it continues uses blocks.
     blocks: bool,
 };
 
-/// Null unless `keyword` is that of an `if` statement, or of the `else if`
-/// of one. Then whether the statement it continues uses blocks.
-fn ifStatement(r: *Render, keyword: Ast.TokenIndex) ?bool {
+/// Null unless `keyword` starts an `if`, `while` or `for` statement, or the
+/// `else if` of one. Then whether the statement that the `else if`
+/// continues uses blocks.
+fn branchStatement(r: *Render, keyword: Ast.TokenIndex) ?bool {
     const tree = r.tree;
     const else_if = r.else_if;
     r.else_if = null;
-    if (tree.tokenTag(keyword) != .keyword_if) return null;
+    switch (tree.tokenTag(keyword)) {
+        .keyword_if, .keyword_while, .keyword_for => {},
+        else => return null,
+    }
     if (else_if) |e| if (e.if_token == keyword) return e.blocks;
     const unit = r.unit orelse return null;
     if (unit.kind != .statement or tree.nodeMainToken(unit.node) != keyword) return null;
     return false;
 }
 
-/// Whether the branches of an `if` statement go in blocks. See
-/// `Config.if_blocks`.
-fn usesBlocks(r: *Render, if_node: Ast.full.While, inherited: bool) bool {
+/// Whether the branches of an `if`, `while` or `for` statement go in
+/// blocks: when one of them needs one, or when `inherited` from the
+/// statement that an `else if` continues.
+fn usesBlocks(
+    r: *Render,
+    keyword: Ast.TokenIndex,
+    then_expr: Ast.Node.Index,
+    opt_else_expr: Ast.Node.OptionalIndex,
+    inherited: bool,
+) bool {
     const tree = r.tree;
-    if (!r.config.if_blocks) return false;
-    const then_expr = if_node.ast.then_expr;
+    const loop = tree.tokenTag(keyword) != .keyword_if;
     var last = then_expr;
-    var needed = inherited or needsBlock(tree, then_expr);
-    if (if_node.ast.else_expr.unwrap()) |else_expr| {
+    var needed = inherited or r.needsBlock(loop, then_expr);
+    if (opt_else_expr.unwrap()) |else_expr| {
         last = else_expr;
-        if (tree.fullIf(else_expr) == null) needed = needed or needsBlock(tree, else_expr);
+        // An `else if` is a statement that decides for itself.
+        if (tree.fullIf(else_expr) == null) needed = needed or r.needsBlock(loop, else_expr);
     }
-    // Comments would end up before the added semicolons and braces.
-    return needed and !hasComment(tree, tree.firstToken(then_expr) - 1, tree.lastToken(last));
+    // Comments would end up before the added semicolons and braces, and
+    // `zig fmt: off` after the last one would leave the block unclosed.
+    if (!needed or hasComment(tree, tree.firstToken(then_expr) - 1, tree.lastToken(last))) return false;
+    const after = tree.lastToken(last) + 1;
+    const start = tree.tokenStart(after);
+    const line_end = mem.findScalarPos(u8, tree.source[0..tree.tokenStart(after + 1)], start, '\n') orelse start;
+    return mem.find(u8, tree.source[start..line_end], "zig fmt:") == null;
 }
 
-/// Whether `node` written as a statement ends with a semicolon. Blocks and
-/// `switch`es don't, nor do `if`, `while` and `for` whose body is a block:
-/// `while (c) {}`. An `else` branch is a statement too.
-fn endsWithSemicolon(tree: Ast, node: Ast.Node.Index) bool {
+/// Whether a branch needs a block. See `Config.if_blocks` and
+/// `Config.loop_blocks`.
+fn needsBlock(r: *const Render, loop: bool, node: Ast.Node.Index) bool {
+    if (nodeIsBlock(r.tree.nodeTag(node))) return false;
+    if (loop) return r.config.loop_blocks;
+    return switch (r.config.if_blocks) {
+        .always => true,
+        .except_jumps => !isJump(r.tree, node),
+        .never => false,
+    };
+}
+
+/// Whether `node`, rendered as a statement, ends with a semicolon. Blocks
+/// and `switch`es don't, nor do `if`, `while` and `for` whose last branch is
+/// a block, `while (c) {}`, including the blocks that `usesBlocks` adds.
+fn endsWithSemicolon(r: *Render, node: Ast.Node.Index) bool {
+    const tree = r.tree;
     var n = node;
+    // As decided in `renderWhile` and `renderFor`: an `else if` continues
+    // a statement, while another `else` branch is an expression unless it
+    // is in a block.
+    var statement = true;
+    var inherited = false;
     while (true) {
         switch (tree.nodeTag(n)) {
             .block, .block_semicolon, .block_two, .block_two_semicolon, .@"switch", .switch_comma => return false,
             else => {},
         }
-        const then_expr: Ast.Node.Index, const else_expr: Ast.Node.OptionalIndex = if (tree.fullIf(n)) |full|
-            .{ full.ast.then_expr, full.ast.else_expr }
-        else if (tree.fullWhile(n)) |full|
-            .{ full.ast.then_expr, full.ast.else_expr }
-        else if (tree.fullFor(n)) |full|
-            .{ full.ast.then_expr, full.ast.else_expr }
-        else
-            return true;
-        n = else_expr.unwrap() orelse return !nodeIsBlock(tree.nodeTag(then_expr));
+        const keyword: Ast.TokenIndex, const then_expr: Ast.Node.Index, const else_expr: Ast.Node.OptionalIndex =
+            if (tree.fullIf(n)) |full|
+                .{ full.ast.if_token, full.ast.then_expr, full.ast.else_expr }
+            else if (tree.fullWhile(n)) |full|
+                .{ full.ast.while_token, full.ast.then_expr, full.ast.else_expr }
+            else if (tree.fullFor(n)) |full|
+                .{ full.ast.for_token, full.ast.then_expr, full.ast.else_expr }
+            else
+                return true;
+        const blocks = statement and r.usesBlocks(keyword, then_expr, else_expr, inherited);
+        const last = else_expr.unwrap() orelse return !blocks and !nodeIsBlock(tree.nodeTag(then_expr));
+        const else_if = tree.fullIf(last) != null;
+        if (blocks and !else_if) return false;
+        statement = statement and else_if;
+        inherited = blocks;
+        n = last;
     }
 }
 
-/// Whether an `if` branch needs a block: unless it is one, or a jump.
-fn needsBlock(tree: Ast, node: Ast.Node.Index) bool {
+/// Whether `node` only leaves: `return`, `break`, `continue`,
+/// `unreachable`, `@panic`, `@trap` or `@compileError`.
+fn isJump(tree: Ast, node: Ast.Node.Index) bool {
     return switch (tree.nodeTag(node)) {
-        .block,
-        .block_semicolon,
-        .block_two,
-        .block_two_semicolon,
         .@"return",
         .@"break",
         .@"continue",
         .unreachable_literal,
-        => false,
+        => true,
         .builtin_call,
         .builtin_call_comma,
         .builtin_call_two,
@@ -1682,16 +1724,16 @@ fn needsBlock(tree: Ast, node: Ast.Node.Index) bool {
         => {
             const name = tree.tokenSlice(tree.nodeMainToken(node));
             for ([_][]const u8{ "@panic", "@trap", "@compileError" }) |jump| {
-                if (mem.eql(u8, name, jump)) return false;
+                if (mem.eql(u8, name, jump)) return true;
             }
-            return true;
+            return false;
         },
-        else => true,
+        else => false,
     };
 }
 
-/// Renders the branches of an `if` statement in blocks, adding the braces
-/// and the semicolon that the source doesn't have:
+/// Renders the branches of an `if`, `while` or `for` statement in blocks,
+/// adding the braces and the semicolon that the source doesn't have:
 /// `if (c) a() else b();` becomes `if (c) {` `a();` `} else {` `b();` `}`.
 fn renderInBlocks(
     r: *Render,
@@ -1743,24 +1785,55 @@ fn renderInBlock(r: *Render, prefix_token: Ast.TokenIndex, node: Ast.Node.Index,
     try ais.writeAll("{");
     try ais.insertNewline();
     try ais.pushSpace(.semicolon);
-    const has_semicolon = space == .semicolon and tree.tokenTag(tree.lastToken(node) + 1) == .semicolon;
-    const needs_semicolon = endsWithSemicolon(tree, node);
+    // The semicolon is written whether the source has one or not, and only
+    // if the statement needs one: `while (c) {}` doesn't.
+    const semicolon = r.endsWithSemicolon(node);
+    const last = tree.lastToken(node);
+    const has_semicolon = tree.tokenTag(last + 1) == .semicolon;
+    // At the end of the statement, comments are rendered here.
+    const ends_statement = space == .semicolon;
     try renderLine(r, .{
         .kind = .statement,
         .node = node,
-        .space = if (has_semicolon and needs_semicolon) .semicolon else .newline,
-        .semicolon = if (has_semicolon == needs_semicolon) .source else if (has_semicolon) .drop else .add,
+        .space = if (ends_statement and !has_semicolon and !semicolon) .skip else .none,
+        .semicolon = semicolon,
     });
+    // The comment after the statement on its line stays with it. Those on
+    // the next lines come after the block.
+    const after = if (has_semicolon) last + 1 else last;
+    var rest: ?usize = null;
+    if (ends_statement) {
+        const start = tree.tokenStart(after) + tree.tokenSlice(after).len;
+        const end = tree.tokenStart(after + 1);
+        const line_end = mem.findScalarPos(u8, tree.source[0..end], start, '\n') orelse end;
+        // With its line break, without which it would extend to the end of
+        // the file.
+        if (!try renderComments(r, start, @min(line_end + 1, end))) try ais.insertNewline();
+        rest = line_end;
+    } else {
+        try ais.insertNewline();
+    }
     ais.popSpace();
     ais.popIndent();
     try ais.writeAll("}");
-    if (space == .semicolon) try ais.insertNewline() else try renderOnlySpace(r, space);
+    if (rest) |start| {
+        if (!try renderComments(r, start, tree.tokenStart(after + 1))) try ais.insertNewline();
+    } else if (space == .semicolon) {
+        try ais.insertNewline();
+    } else {
+        try renderOnlySpace(r, space);
+    }
 }
 
 fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
-    try decideBodyBreak(r, for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr);
+    const statement = r.branchStatement(for_node.ast.for_token);
+    const blocks = if (statement) |inherited|
+        usesBlocks(r, for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr, inherited)
+    else
+        false;
+    if (!blocks) try decideBodyBreak(r, for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr);
 
     if (for_node.label_token) |label| {
         try renderIdentifier(r, label, .none, .eagerly_unquote); // label
@@ -1795,10 +1868,19 @@ fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
         }
     }
 
+    if (blocks) return renderInBlocks(
+        r,
+        cur,
+        for_node.ast.then_expr,
+        for_node.else_token,
+        null,
+        for_node.ast.else_expr,
+        space,
+    );
     try renderThenElse(
         r,
         for_node.ast.for_token,
-        false,
+        statement != null,
         cur,
         for_node.ast.then_expr,
         for_node.else_token,
@@ -3092,15 +3174,9 @@ const Unit = struct {
     node: Ast.Node.Index,
     space: Space,
     container: Container = .other,
-    /// For a statement in a block that `renderInBlock` adds.
-    semicolon: enum {
-        /// As in the source.
-        source,
-        /// The statement needs one that the source doesn't have.
-        add,
-        /// The source has one that the statement doesn't need anymore.
-        drop,
-    } = .source,
+    /// Write a semicolon after a statement rather than the source's one. See
+    /// `renderInBlock`.
+    semicolon: bool = false,
 };
 
 fn renderUnit(r: *Render, unit: Unit) Error!void {
@@ -3108,18 +3184,12 @@ fn renderUnit(r: *Render, unit: Unit) Error!void {
         .expression => try renderExpression(r, unit.node, unit.space),
         .statement => if (r.tree.fullVarDecl(unit.node)) |var_decl| {
             try renderVarDecl(r, var_decl, false, unit.space);
-        } else switch (unit.semicolon) {
-            .source => try renderExpression(r, unit.node, unit.space),
-            .add => {
-                try renderExpression(r, unit.node, .none);
-                try r.ais.writeAll(";");
-                try renderOnlySpace(r, unit.space);
-            },
-            // Comments after the semicolon stay.
-            .drop => {
-                try renderExpression(r, unit.node, .none);
-                try renderSpace(r, r.tree.lastToken(unit.node) + 1, 1, unit.space);
-            },
+        } else if (unit.semicolon) {
+            try renderExpression(r, unit.node, .none);
+            try r.ais.writeAll(";");
+            try renderOnlySpace(r, unit.space);
+        } else {
+            try renderExpression(r, unit.node, unit.space);
         },
         .member => try renderMember(r, unit.container, unit.node, unit.space),
     }
