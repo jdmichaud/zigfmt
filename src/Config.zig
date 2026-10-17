@@ -29,7 +29,8 @@ line_width: u16 = 100,
 trailing_commas: bool = true,
 /// Write `.{ a, b }` rather than `.{a, b}`. Applies to initializers, error
 /// sets and containers written on one line, except next to an element that
-/// is itself a list: `.{.{ 1, 2 }, .{ 3, 4 }}`.
+/// is itself a list: `.{.{ 1, 2 }, .{ 3, 4 }}`. The closing brace has no
+/// space only if the opening one has none: `.{ x, .{ 1, 2 } }`.
 space_inside_braces: bool = true,
 /// Spaces around `..` and `...` in slices, ranges and switch prongs.
 range_spacing: RangeSpacing = .never,

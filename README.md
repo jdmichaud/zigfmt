@@ -110,9 +110,10 @@ before `.field` and in similar places are kept, as in `zig fmt`.
 
 Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
 spaces like `.{ a, b }` (`zig fmt` writes `.{x}`) but none next to an
-element that is itself a list (`.{.{ 1, 0 }, .{ 0, 1 }}`), `a..b` without
-spaces in all ranges, blocks around `if` and loop bodies (below), and an
-error for `@import` inside functions, tests and `comptime` blocks.
+element that is itself a list (`.{.{ 1, 0 }, .{ 0, 1 }}`, but
+`.{ x, .{ 1, 2 } }`: the closing brace follows the opening one), `a..b`
+without spaces in all ranges, blocks around `if` and loop bodies (below),
+and an error for `@import` inside functions, tests and `comptime` blocks.
 
 With `.if_blocks = .except_jumps`, the default, the branches of an `if`
 statement go in blocks unless they are jumps (`return`, `break`,
@@ -204,7 +205,7 @@ Every field is optional:
 | `max_blank_lines`     | `1`         | Longest run of empty lines kept from the source. Never adds new ones.       |
 | `line_width`          | `100`       | Lists and `and`/`or` chains that don't fit in this many columns are split.  |
 | `trailing_commas`     | `true`      | End split lists with a comma.                                               |
-| `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Never next to an element that is a list: `.{.{ 1, 2 }}`. |
+| `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Not next to an element that is a list: `.{.{ 1, 2 }}`, unless the other brace has a space: `.{ x, .{ 1, 2 } }`. |
 | `range_spacing`       | `.never`    | `.never` (`a..b`), `.always` (`a .. b`), or `.zig_fmt` (spaces only in slices with compound operands). |
 | `if_blocks`           | `.except_jumps` | Which branches of `if` statements go in blocks: `.always`, `.except_jumps` (not `return`, `break`, ...) or `.never`. |
 | `loop_blocks`         | `true`      | Put the bodies of `while` and `for` statements in blocks.                   |

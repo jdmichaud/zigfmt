@@ -2512,9 +2512,14 @@ fn renderArrayInit(
         // Render all on one line, no trailing comma.
         r.flat += 1;
         defer r.flat -= 1;
-        try renderListOpen(r, lbrace, r.elementBraceSpace(elements[0]));
+        // The closing brace is next to the last element only if the opening
+        // one is next to the first: `.{.{ 1, 2 }, .{ 3, 4 }}`, but
+        // `.{ x, .{ 1, 2 } }`.
+        const open_space = r.elementBraceSpace(elements[0]);
+        const close_space = if (open_space == .none) r.elementBraceSpace(elements[elements.len - 1]) else open_space;
+        try renderListOpen(r, lbrace, open_space);
         for (elements, 0..) |elem, i| {
-            try renderExpression(r, elem, if (i + 1 == elements.len) r.elementBraceSpace(elem) else .comma_space);
+            try renderExpression(r, elem, if (i + 1 == elements.len) close_space else .comma_space);
         }
         return renderListClose(r, lbrace, rbrace, space);
     }
@@ -3684,7 +3689,7 @@ fn braceSpace(r: *const Render) Space {
 }
 
 /// Like `braceSpace`, but none next to an element that is itself an
-/// anonymous list: `.{.{ 1, 2 }, .{ 3, 4 }}`.
+/// anonymous list: `.{.{ 1, 2 }, .{ 3, 4 }}`. See `renderArrayInit`.
 fn elementBraceSpace(r: *const Render, element: Ast.Node.Index) Space {
     return switch (r.tree.nodeTag(element)) {
         .array_init_dot,

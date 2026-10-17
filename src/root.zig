@@ -845,7 +845,7 @@ test "space_inside_braces" {
     );
 }
 
-test "space_inside_braces: none next to an element that is a list" {
+test "space_inside_braces: none next to an element that is a list, unless the other brace has one" {
     try expectFormat(.default,
         \\const m = .{ .{ 1, 0 }, .{ 0, 1 } };
         \\const a = .{ .{ 1, 2 }, x };
@@ -858,7 +858,7 @@ test "space_inside_braces: none next to an element that is a list" {
     ,
         \\const m = .{.{ 1, 0 }, .{ 0, 1 }};
         \\const a = .{.{ 1, 2 }, x };
-        \\const b = .{ x, .{ 1, 2 }};
+        \\const b = .{ x, .{ 1, 2 } };
         \\const c = .{ .a = .{ 1, 2 } };
         \\const d = [_][2]u8{.{ 1, 2 }};
         \\const e = .{.{}};
