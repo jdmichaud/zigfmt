@@ -109,7 +109,8 @@ pub fn sortImports(gpa: Allocator, tree: Ast) Allocator.Error!?[:0]u8 {
 }
 
 /// Returns the `@import` tokens inside function bodies, tests and
-/// container-level `comptime` blocks, in source order. Caller owns the
+/// container-level `comptime` blocks, in source order, except those of the
+/// first group of imports in each test (see `testImports`). Caller owns the
 /// slice.
 pub fn findNestedImports(gpa: Allocator, tree: Ast) Allocator.Error![]Ast.TokenIndex {
     // First and last token of each piece of code.
@@ -117,6 +118,8 @@ pub fn findNestedImports(gpa: Allocator, tree: Ast) Allocator.Error![]Ast.TokenI
     defer code.deinit(gpa);
     var imports: std.ArrayList(Ast.TokenIndex) = .empty;
     defer imports.deinit(gpa);
+    var allowed: std.ArrayList(Ast.TokenIndex) = .empty;
+    defer allowed.deinit(gpa);
 
     for (0..tree.nodes.len) |i| {
         const node: Ast.Node.Index = @fromBackingInt(@intCast(i));
@@ -128,6 +131,7 @@ pub fn findNestedImports(gpa: Allocator, tree: Ast) Allocator.Error![]Ast.TokenI
             .test_decl => {
                 const body = tree.nodeData(node).opt_token_and_node[1];
                 try code.append(gpa, .{ tree.firstToken(body), tree.lastToken(body) });
+                try testImports(gpa, &allowed, tree, body);
             },
             .root => for (tree.rootDecls()) |member| try appendComptime(gpa, &code, tree, member),
             else => {
@@ -144,6 +148,7 @@ pub fn findNestedImports(gpa: Allocator, tree: Ast) Allocator.Error![]Ast.TokenI
     var nested: std.ArrayList(Ast.TokenIndex) = .empty;
     errdefer nested.deinit(gpa);
     for (imports.items) |token| {
+        if (std.mem.findScalar(Ast.TokenIndex, allowed.items, token) != null) continue;
         for (code.items) |range| {
             if (token > range[0] and token < range[1]) {
                 try nested.append(gpa, token);
@@ -153,6 +158,48 @@ pub fn findNestedImports(gpa: Allocator, tree: Ast) Allocator.Error![]Ast.TokenI
     }
     std.mem.sort(Ast.TokenIndex, nested.items, {}, std.sort.asc(Ast.TokenIndex));
     return nested.toOwnedSlice(gpa);
+}
+
+/// Appends the `@import` tokens of the first run of consecutive import
+/// statements of a test (see `importStatement`). Tests may import, as long
+/// as they do it in one place.
+fn testImports(gpa: Allocator, allowed: *std.ArrayList(Ast.TokenIndex), tree: Ast, body: Ast.Node.Index) !void {
+    var buf: [2]Ast.Node.Index = undefined;
+    const statements = tree.blockStatements(&buf, body) orelse return;
+    var in_group = false;
+    for (statements) |statement| {
+        if (importStatement(tree, statement)) |token| {
+            try allowed.append(gpa, token);
+            in_group = true;
+        } else if (in_group) {
+            return;
+        }
+    }
+}
+
+/// The `@import` token of a statement whose value starts with one:
+/// `const x = @import("x.zig");`, `_ = @import("x.zig");` or
+/// `@import("std").testing.refAllDecls(@This());`.
+fn importStatement(tree: Ast, statement: Ast.Node.Index) ?Ast.TokenIndex {
+    var value = if (tree.fullVarDecl(statement)) |var_decl| value: {
+        if (tree.tokenTag(var_decl.ast.mut_token) != .keyword_const) return null;
+        break :value var_decl.ast.init_node.unwrap() orelse return null;
+    } else if (tree.nodeTag(statement) == .assign) value: {
+        const lhs, const rhs = tree.nodeData(statement).node_and_node;
+        if (tree.nodeTag(lhs) != .identifier or !std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(lhs)), "_")) return null;
+        break :value rhs;
+    } else statement;
+    // Through field accesses and calls on what is imported.
+    while (true) {
+        var buf: [1]Ast.Node.Index = undefined;
+        if (tree.nodeTag(value) == .field_access) {
+            value = tree.nodeData(value).node_and_token[0];
+        } else if (tree.fullCall(&buf, value)) |call| {
+            value = call.ast.fn_expr;
+        } else break;
+    }
+    if (importPath(tree, value) == null) return null;
+    return tree.nodeMainToken(value);
 }
 
 fn appendComptime(gpa: Allocator, code: *std.ArrayList([2]Ast.TokenIndex), tree: Ast, member: Ast.Node.Index) !void {
@@ -237,11 +284,41 @@ test findNestedImports {
         \\    _ = x;
         \\}
         \\test {
-        \\    _ = @import("test.zig");
+        \\    if (true) _ = @import("test.zig");
         \\}
         \\comptime {
         \\    _ = @import("comptime.zig");
         \\}
         \\
     , &.{ 6, 10, 14, 17 });
+    // A test may import in one group of statements that only import.
+    try testNested(
+        \\test {
+        \\    const std = @import("std");
+        \\
+        \\    // why
+        \\    const expect = @import("std").testing.expect;
+        \\    _ = @import("other.zig");
+        \\    @import("std").testing.refAllDecls(@This());
+        \\    try expect(true);
+        \\    const late = @import("late.zig");
+        \\    _ = late;
+        \\    {
+        \\        _ = @import("nested.zig");
+        \\    }
+        \\    _ = std;
+        \\}
+        \\fn f() void {
+        \\    const std = @import("std");
+        \\    _ = std;
+        \\}
+        \\
+    , &.{ 9, 12, 17 });
+    try testNested(
+        \\test {
+        \\    try std.testing.expect(@import("x.zig").ok);
+        \\    for (0..2) |_| _ = @import("loop.zig");
+        \\}
+        \\
+    , &.{ 2, 3 });
 }

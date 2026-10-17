@@ -43,7 +43,10 @@ loop_blocks: bool = true,
 /// Sort runs of consecutive top-level `@import` declarations by path.
 sort_imports: bool = false,
 /// Whether `@import` may appear inside function bodies, tests and
-/// `comptime` blocks. `.forbid` reports such imports as errors.
+/// `comptime` blocks. `.forbid` reports such imports as errors, except in a
+/// test the first run of statements whose value starts with `@import`:
+/// `const std = @import("std");`, `_ = @import("x.zig");`,
+/// `@import("std").testing.refAllDecls(@This());`.
 nested_imports: NestedImports = .forbid,
 
 pub const IndentStyle = enum { spaces, tabs };

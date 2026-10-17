@@ -27,6 +27,7 @@ matching the pushed tag as the release notes.
 - Options for indentation, line endings, empty lines, spaces inside braces,
   spaces around ranges and import sorting.
 - An error for `@import` inside functions, tests and `comptime` blocks.
+  Tests may import in one group of statements.
 - Blocks around the branches of `if` statements, unless they are jumps
   (`return`, `break`, `continue`, `unreachable`, `@panic`...) on one line
   with their `if`, and around the bodies of loops: `if_blocks` (`.always`,

@@ -76,7 +76,7 @@ const override_help = .{
     .if_blocks = "Which if branches go in blocks (except_jumps: all but return, break, continue...)",
     .loop_blocks = "Put while and for bodies in blocks",
     .sort_imports = "Sort runs of top-level @imports by path",
-    .nested_imports = "Report @import inside functions, tests and comptime blocks as errors",
+    .nested_imports = "Report @import inside functions, tests (except one group of imports) and comptime blocks as errors",
 };
 
 fn optionName(comptime field: []const u8) []const u8 {
@@ -545,7 +545,7 @@ fn formatSource(
         defer ctx.gpa.free(nested);
         for (nested) |token| {
             try reportAt(ctx, tree, display_path, token, 0, "error");
-            try ctx.stderr.writeAll("@import is only allowed in container-level declarations\n");
+            try ctx.stderr.writeAll("@import is only allowed in container-level declarations, or in one group in a test\n");
         }
         if (nested.len != 0) ctx.any_error = true;
     }

@@ -125,6 +125,9 @@ element that is itself a list (`.{.{ 1, 0 }, .{ 0, 1 }}`, but
 `.{ x, .{ 1, 2 } }`: the closing brace follows the opening one), `a..b`
 without spaces in all ranges, blocks around `if` and loop bodies (below),
 and an error for `@import` inside functions, tests and `comptime` blocks.
+A test may still import, in one group of consecutive statements whose
+value starts with `@import`: `const std = @import("std");`,
+`_ = @import("x.zig");`, `@import("std").testing.refAllDecls(@This());`.
 
 With `.if_blocks = .except_jumps`, the default, the branches of an `if`
 statement go in blocks unless they are jumps (`return`, `break`,
@@ -236,7 +239,7 @@ Every field is optional:
 | `if_blocks`           | `.except_jumps` | Which branches of `if` statements go in blocks: `.always`, `.except_jumps` (not `return`, `break`, ... on the line of their `if`) or `.never`. |
 | `loop_blocks`         | `true`      | Put the bodies of `while` and `for` statements in blocks.                   |
 | `sort_imports`        | `false`     | Sort runs of consecutive top-level `const x = @import(...);` by path. A run ends at an empty line, a comment or another declaration. |
-| `nested_imports`      | `.forbid`   | `.forbid` reports `@import` inside functions, tests and `comptime` blocks as an error. The file is still formatted. |
+| `nested_imports`      | `.forbid`   | `.forbid` reports `@import` inside functions, tests and `comptime` blocks as an error, except one group of imports in a test. The file is still formatted. |
 
 Notes:
 
