@@ -441,7 +441,7 @@ test "line_width: and/or chains keep the source's lines if they fit" {
 }
 
 test "line_width: if, while and for break before a body that doesn't fit" {
-    try expectFormat(.{ .line_width = 40, .loop_blocks = false },
+    try expectFormat(.{ .line_width = 40, .if_blocks = .never, .loop_blocks = false },
         \\test {
         \\  if (alpha_value > beta_value) return false;
         \\  const c: u8 = if (y > 0 and i >= n) decoded[i - n] else 0;
@@ -524,7 +524,7 @@ test "line_width: catch and orelse break before their fallback" {
 }
 
 test "line_width: no break where the line doesn't fit up to it" {
-    try expectFormat(narrow,
+    try expectFormat(.{ .line_width = 40, .if_blocks = .never },
         \\test {
         \\  const optimize = b.option(Mode, "name", "a description") orelse .small;
         \\  if (alpha_long and beta_long and gamma_long) return x;
@@ -921,7 +921,9 @@ test "if_blocks" {
         \\  } else {
         \\    return;
         \\  }
-        \\  if (g) return else if (h) {
+        \\  if (g) {
+        \\    return;
+        \\  } else if (h) {
         \\    foo();
         \\  }
         \\  if (i) @panic("no");
@@ -958,6 +960,34 @@ test "if_blocks" {
         \\
     );
     try expectFormat(.{ .if_blocks = .never, .loop_blocks = false }, input, input);
+    // Jumps get blocks too unless the whole statement is on one line.
+    try expectFormat(narrow,
+        \\test {
+        \\  if (alpha_value > beta_value) return false;
+        \\  if (a)
+        \\    return;
+        \\  if (a and
+        \\    b) return;
+        \\  if (c) return 1 else return 2;
+        \\}
+        \\
+    ,
+        \\test {
+        \\  if (alpha_value > beta_value) {
+        \\    return false;
+        \\  }
+        \\  if (a) {
+        \\    return;
+        \\  }
+        \\  if (a and
+        \\    b)
+        \\  {
+        \\    return;
+        \\  }
+        \\  if (c) return 1 else return 2;
+        \\}
+        \\
+    );
     // With `.always`, jumps get blocks too.
     try expectFormat(.{ .if_blocks = .always },
         \\test {

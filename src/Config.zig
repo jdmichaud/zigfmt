@@ -60,8 +60,9 @@ pub const IfBlocks = enum {
     /// All of them: `if (done) {` `return;` `}`.
     always,
     /// Those that aren't jumps: `return`, `break`, `continue`,
-    /// `unreachable`, `@panic`, `@trap` or `@compileError`. When one branch
-    /// needs a block, the others get one too.
+    /// `unreachable`, `@panic`, `@trap` or `@compileError`. Jumps stay
+    /// without blocks only if the whole statement is on one line. When one
+    /// branch needs a block, the others get one too.
     except_jumps,
     /// None: branches stay as in the source.
     never,

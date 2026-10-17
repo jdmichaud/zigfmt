@@ -1454,9 +1454,10 @@ fn renderIf(r: *Render, if_node: Ast.full.If, space: Space) Error!void {
 /// respective values set to null.
 fn renderWhile(r: *Render, while_node: Ast.full.While, space: Space) Error!void {
     const tree = r.tree;
+    if (r.measure) |m| m.spanStart(while_node.ast.while_token, r.ais.lineColumn());
     const statement = r.branchStatement(while_node.ast.while_token);
     const blocks = if (statement) |inherited|
-        usesBlocks(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr, inherited)
+        try r.decideBlocks(while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr, inherited)
     else
         false;
     if (!blocks) try decideBodyBreak(r, while_node.ast.while_token, while_node.ast.then_expr, while_node.ast.else_expr);
@@ -1635,7 +1636,8 @@ fn branchStatement(r: *Render, keyword: Ast.TokenIndex) ?bool {
 
 /// Whether the branches of an `if`, `while` or `for` statement go in
 /// blocks: when one of them needs one, or when `inherited` from the
-/// statement that an `else if` continues.
+/// statement that an `else if` continues. Also when `decideBlocks` has
+/// found that jumps are not on one line with their `if`.
 fn usesBlocks(
     r: *Render,
     keyword: Ast.TokenIndex,
@@ -1645,16 +1647,56 @@ fn usesBlocks(
 ) bool {
     const tree = r.tree;
     const loop = tree.tokenTag(keyword) != .keyword_if;
-    var last = then_expr;
+    const last = opt_else_expr.unwrap() orelse then_expr;
     var needed = inherited or r.needsBlock(loop, then_expr);
-    if (opt_else_expr.unwrap()) |else_expr| {
-        last = else_expr;
-        // An `else if` is a statement that decides for itself.
-        if (tree.fullIf(else_expr) == null) needed = needed or r.needsBlock(loop, else_expr);
-    }
-    // Comments would end up before the added semicolons and braces, and
-    // `zig fmt: off` after the last one would leave the block unclosed.
-    if (!needed or hasComment(tree, tree.firstToken(then_expr) - 1, tree.lastToken(last))) return false;
+    // An `else if` is a statement that decides for itself.
+    if (tree.fullIf(last) == null and last != then_expr) needed = needed or r.needsBlock(loop, last);
+    needed = needed or (!loop and r.config.if_blocks == .except_jumps and r.breaks.contains(keyword));
+    return needed and r.blocksAllowed(then_expr, last);
+}
+
+/// `usesBlocks`, after deciding whether the jumps of an `if` statement are
+/// on one line with it. Otherwise they go in blocks too:
+///
+///     if (!self.audio.available or format.channels == 0) {
+///         return error.Unsupported;
+///     }
+fn decideBlocks(
+    r: *Render,
+    keyword: Ast.TokenIndex,
+    then_expr: Ast.Node.Index,
+    opt_else_expr: Ast.Node.OptionalIndex,
+    inherited: bool,
+) Error!bool {
+    const tree = r.tree;
+    if (r.usesBlocks(keyword, then_expr, opt_else_expr, inherited)) return true;
+    if (tree.tokenTag(keyword) != .keyword_if or r.config.if_blocks != .except_jumps or r.flat > 0) return false;
+    const last = opt_else_expr.unwrap() orelse then_expr;
+    const bare = !nodeIsBlock(tree.nodeTag(then_expr)) or
+        (last != then_expr and tree.fullIf(last) == null and !nodeIsBlock(tree.nodeTag(last)));
+    if (!bare or !r.blocksAllowed(then_expr, last)) return false;
+    const unit = r.unit orelse return false;
+
+    // On one line as the source has it, chains included.
+    var m: Measure = .{
+        .target = keyword,
+        .last = tree.lastToken(last),
+        .hug = null,
+        .around_multiline_strings = false,
+        .source_chains = true,
+    };
+    try measureUnit(r, unit, &m);
+    if (m.end != null and !m.cut and r.ais.lineColumn() + (m.tail_end - m.start) <= r.config.line_width) return false;
+    try r.breaks.put(r.gpa, keyword, .broken);
+    return true;
+}
+
+/// Whether the branches from `then_expr` to `last` may go in blocks.
+/// Comments would end up before the added semicolons and braces, and
+/// `zig fmt: off` after the last one would leave the block unclosed.
+fn blocksAllowed(r: *Render, then_expr: Ast.Node.Index, last: Ast.Node.Index) bool {
+    const tree = r.tree;
+    if (hasComment(tree, tree.firstToken(then_expr) - 1, tree.lastToken(last))) return false;
     const after = tree.lastToken(last) + 1;
     const start = tree.tokenStart(after);
     const line_end = mem.findScalarPos(u8, tree.source[0..tree.tokenStart(after + 1)], start, '\n') orelse start;
@@ -1786,7 +1828,14 @@ fn renderInBlock(r: *Render, prefix_token: Ast.TokenIndex, node: Ast.Node.Index,
     try ais.insertNewline();
     try ais.pushSpace(.semicolon);
     // The semicolon is written whether the source has one or not, and only
-    // if the statement needs one: `while (c) {}` doesn't.
+    // if the statement needs one: `while (c) {}` doesn't. That depends on
+    // whether an `if` statement puts its jumps in blocks, which is decided
+    // first, measured with the semicolon it has without them.
+    if (tree.fullIf(node)) |if_node| {
+        const prev = r.enterUnit(.{ .kind = .statement, .node = node, .space = .none, .semicolon = r.endsWithSemicolon(node) });
+        defer r.leaveUnit(prev);
+        _ = try r.decideBlocks(if_node.ast.if_token, if_node.ast.then_expr, if_node.ast.else_expr, false);
+    }
     const semicolon = r.endsWithSemicolon(node);
     const last = tree.lastToken(node);
     const has_semicolon = tree.tokenTag(last + 1) == .semicolon;
@@ -1828,9 +1877,10 @@ fn renderInBlock(r: *Render, prefix_token: Ast.TokenIndex, node: Ast.Node.Index,
 fn renderFor(r: *Render, for_node: Ast.full.For, space: Space) Error!void {
     const tree = r.tree;
     const token_tags = tree.tokens.items(.tag);
+    if (r.measure) |m| m.spanStart(for_node.ast.for_token, r.ais.lineColumn());
     const statement = r.branchStatement(for_node.ast.for_token);
     const blocks = if (statement) |inherited|
-        usesBlocks(r, for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr, inherited)
+        try r.decideBlocks(for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr, inherited)
     else
         false;
     if (!blocks) try decideBodyBreak(r, for_node.ast.for_token, for_node.ast.then_expr, for_node.ast.else_expr);
@@ -3344,7 +3394,7 @@ fn decideChainLayout(r: *Render, node: Ast.Node.Index) Error!ChainLayout {
     const op_token = tree.nodeMainToken(node);
     const preferred: ChainLayout = if (chainHasRows(tree, node)) .rows else .flat;
     if (r.breaks.get(op_token)) |layout| return layout;
-    if (r.measure) |m| if (m.target == op_token) return preferred;
+    if (r.measure) |m| if (m.target == op_token or m.source_chains) return preferred;
     if (r.flat > 0) return .flat;
 
     const layout: ChainLayout = layout: {
@@ -3424,7 +3474,6 @@ fn decideBodyBreak(
     else_expr: Ast.Node.OptionalIndex,
 ) Error!void {
     const tree = r.tree;
-    if (r.measure) |m| m.spanStart(keyword, r.ais.lineColumn());
     if (r.flat > 0 or nodeIsBlock(tree.nodeTag(then_expr))) return;
     // Otherwise the line breaks there already.
     const then_first = tree.firstToken(then_expr);
@@ -3498,6 +3547,9 @@ const Measure = struct {
     widest: usize = 0,
     /// The target's line ends inside it, at a line break that it forces.
     cut: bool = false,
+    /// Chains not decided yet keep the source's line breaks, rather than
+    /// being on one line.
+    source_chains: bool = false,
     /// Column after the target's first point where it could break: its first
     /// operator, `catch |err|`, or the end of its condition.
     first_break: ?usize = null,

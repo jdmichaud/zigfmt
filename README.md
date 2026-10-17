@@ -117,13 +117,17 @@ and an error for `@import` inside functions, tests and `comptime` blocks.
 
 With `.if_blocks = .except_jumps`, the default, the branches of an `if`
 statement go in blocks unless they are jumps (`return`, `break`,
-`continue`, `unreachable`, `@panic`, `@trap`, `@compileError`). When one
-branch needs a block, the others get one too. `.always` puts every branch
-in a block, jumps included, and `.never` leaves them as they are:
+`continue`, `unreachable`, `@panic`, `@trap`, `@compileError`) and the
+whole statement is on one line. When one branch needs a block, the others
+get one too. `.always` puts every branch in a block, jumps included, and
+`.never` leaves them as they are:
 
 ```zig
 if (y > 0 and rows[y - 1][x] != '.') {
   links.neighbors[room][0] = rows[y - 1][x] - 'a';
+}
+if (!self.audio.available or format.channels == 0 or format.sample_rate == 0) {
+  return error.Unsupported;
 }
 if (done) return;
 ```
@@ -207,7 +211,7 @@ Every field is optional:
 | `trailing_commas`     | `true`      | End split lists with a comma.                                               |
 | `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Not next to an element that is a list: `.{.{ 1, 2 }}`, unless the other brace has a space: `.{ x, .{ 1, 2 } }`. |
 | `range_spacing`       | `.never`    | `.never` (`a..b`), `.always` (`a .. b`), or `.zig_fmt` (spaces only in slices with compound operands). |
-| `if_blocks`           | `.except_jumps` | Which branches of `if` statements go in blocks: `.always`, `.except_jumps` (not `return`, `break`, ...) or `.never`. |
+| `if_blocks`           | `.except_jumps` | Which branches of `if` statements go in blocks: `.always`, `.except_jumps` (not `return`, `break`, ... on the line of their `if`) or `.never`. |
 | `loop_blocks`         | `true`      | Put the bodies of `while` and `for` statements in blocks.                   |
 | `sort_imports`        | `false`     | Sort runs of consecutive top-level `const x = @import(...);` by path. A run ends at an empty line, a comment or another declaration. |
 | `nested_imports`      | `.forbid`   | `.forbid` reports `@import` inside functions, tests and `comptime` blocks as an error. The file is still formatted. |
