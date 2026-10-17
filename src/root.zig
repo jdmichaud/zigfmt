@@ -490,7 +490,7 @@ test "structs with named fields and unions declared with a name are never on one
         \\  pos: struct { x: i16, y: i16 },
         \\};
         \\const L = std.MultiArrayList(struct { a: u32, b: u32 });
-        \\const T = foo(0, [_]struct { a: u8 }{ .{ .a = 1 } });
+        \\const T = foo(0, [_]struct { a: u8 }{.{ .a = 1 }});
         \\
     ;
     try expectFormat(.default, in_place, in_place);
@@ -550,6 +550,28 @@ test "space_inside_braces" {
         \\const E = error{A};
         \\const C = enum {a, b};
         \\const e = .{};
+        \\
+    );
+}
+
+test "space_inside_braces: none next to an element that is a list" {
+    try expectFormat(.default,
+        \\const m = .{ .{ 1, 0 }, .{ 0, 1 } };
+        \\const a = .{ .{ 1, 2 }, x };
+        \\const b = .{ x, .{ 1, 2 } };
+        \\const c = .{ .a = .{ 1, 2 } };
+        \\const d = [_][2]u8{ .{ 1, 2 } };
+        \\const e = .{ .{} };
+        \\const f = .{ Point{ .x = 1 } };
+        \\
+    ,
+        \\const m = .{.{ 1, 0 }, .{ 0, 1 }};
+        \\const a = .{.{ 1, 2 }, x };
+        \\const b = .{ x, .{ 1, 2 }};
+        \\const c = .{ .a = .{ 1, 2 } };
+        \\const d = [_][2]u8{.{ 1, 2 }};
+        \\const e = .{.{}};
+        \\const f = .{ Point{ .x = 1 } };
         \\
     );
 }

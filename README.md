@@ -59,9 +59,10 @@ the source has after binary operators, before `.field` and in similar places
 are kept, as in `zig fmt`.
 
 Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
-spaces like `.{ a, b }` (`zig fmt` writes `.{x}`), `a..b` without spaces in
-all ranges, and an error for `@import` inside functions, tests and
-`comptime` blocks.
+spaces like `.{ a, b }` (`zig fmt` writes `.{x}`) but none next to an
+element that is itself a list (`.{.{ 1, 0 }, .{ 0, 1 }}`), `a..b` without
+spaces in all ranges, and an error for `@import` inside functions, tests
+and `comptime` blocks.
 
 `zig fmt` doesn't undo any of this: with `.indent_width = 4`, running it on
 zigfmt's output keeps every line break and indentation.
@@ -136,7 +137,7 @@ Every field is optional:
 | `max_blank_lines`     | `1`         | Longest run of empty lines kept from the source. Never adds new ones.       |
 | `line_width`          | `100`       | Lists that don't fit in this many columns are split.                        |
 | `trailing_commas`     | `true`      | End split lists with a comma.                                               |
-| `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces.                |
+| `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Never next to an element that is a list: `.{.{ 1, 2 }}`. |
 | `range_spacing`       | `.never`    | `.never` (`a..b`), `.always` (`a .. b`), or `.zig_fmt` (spaces only in slices with compound operands). |
 | `sort_imports`        | `false`     | Sort runs of consecutive top-level `const x = @import(...);` by path. A run ends at an empty line, a comment or another declaration. |
 | `nested_imports`      | `.forbid`   | `.forbid` reports `@import` inside functions, tests and `comptime` blocks as an error. The file is still formatted. |

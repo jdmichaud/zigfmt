@@ -2228,9 +2228,9 @@ fn renderArrayInit(
         // Render all on one line, no trailing comma.
         r.flat += 1;
         defer r.flat -= 1;
-        try renderListOpen(r, lbrace, r.braceSpace());
+        try renderListOpen(r, lbrace, r.elementBraceSpace(elements[0]));
         for (elements, 0..) |elem, i| {
-            try renderExpression(r, elem, if (i + 1 == elements.len) r.braceSpace() else .comma_space);
+            try renderExpression(r, elem, if (i + 1 == elements.len) r.elementBraceSpace(elem) else .comma_space);
         }
         return renderListClose(r, lbrace, rbrace, space);
     }
@@ -3064,6 +3064,23 @@ fn lastElementSpace(r: *const Render) Space {
 /// Space between the braces and the elements of a list on one line.
 fn braceSpace(r: *const Render) Space {
     return if (r.config.space_inside_braces) .space else .none;
+}
+
+/// Like `braceSpace`, but none next to an element that is itself an
+/// anonymous list: `.{.{ 1, 2 }, .{ 3, 4 }}`.
+fn elementBraceSpace(r: *const Render, element: Ast.Node.Index) Space {
+    return switch (r.tree.nodeTag(element)) {
+        .array_init_dot,
+        .array_init_dot_comma,
+        .array_init_dot_two,
+        .array_init_dot_two_comma,
+        .struct_init_dot,
+        .struct_init_dot_comma,
+        .struct_init_dot_two,
+        .struct_init_dot_two_comma,
+        => .none,
+        else => r.braceSpace(),
+    };
 }
 
 /// Whether `token` is a comma directly before the token closing its list.
