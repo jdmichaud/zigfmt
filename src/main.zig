@@ -137,10 +137,12 @@ pub fn main(init: std.process.Init) !u8 {
     const args = clap.parser(cli).parse(try init.minimal.args.toSlice(init.arena.allocator()));
     const paths = args.arguments.items;
 
+    // Streaming: positional writers each start at offset 0, so with
+    // `> out.txt 2>&1` they would write over each other.
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
+    var stdout_writer: Io.File.Writer = .initStreaming(.stdout(), io, &stdout_buffer);
     var stderr_buffer: [1024]u8 = undefined;
-    var stderr_writer: Io.File.Writer = .init(.stderr(), io, &stderr_buffer);
+    var stderr_writer: Io.File.Writer = .initStreaming(.stderr(), io, &stderr_buffer);
     defer stdout_writer.interface.flush() catch {};
     defer stderr_writer.interface.flush() catch {};
 
