@@ -37,6 +37,17 @@ the source was laid out:
   });
   ```
 
+- Multiline strings among the arguments of a call don't split it: the
+  arguments after a multiline string follow it on the next line, as in
+  `zig fmt`. Only the lines outside the string must fit:
+
+  ```zig
+  try w.print(
+    \\{d} items
+    \\
+  , .{ count });
+  ```
+
 - Lists containing comments are always split.
 - Array initializers that the source lays out in rows with several elements
   per row keep their rows, aligned in columns as `zig fmt` does. This keeps

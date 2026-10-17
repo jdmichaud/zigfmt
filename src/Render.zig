@@ -392,6 +392,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try ais.insertNewline(); // A newline is part of the token, so it still needs
                 // rendered here.
             }
+            if (r.measure) |m| m.multilineStringEnd();
 
             const next_token = last_tok + 1;
             const next_token_tag = tree.tokenTag(next_token);
@@ -2716,6 +2717,7 @@ fn renderParamList(
         .open = lparen,
         .can_flat = !hasComment(tree, lparen, rparen),
         .hug = hugToken(tree, last_param, lparen, rparen),
+        .around_multiline_strings = multilineStringsAreArguments(tree, params, lparen, rparen),
     });
     if (layout == .broken) {
         try ais.pushIndent(.normal);
@@ -2756,6 +2758,22 @@ fn renderParamList(
     if (layout == .flat) r.flat -= 1;
     ais.popIndent();
     return renderListClose(r, lparen, rparen, space); // )
+}
+
+/// Whether every multiline string between the parentheses is an argument
+/// itself. Inside another list, it would make that list flat as well.
+fn multilineStringsAreArguments(tree: Ast, params: []const Ast.Node.Index, lparen: Ast.TokenIndex, rparen: Ast.TokenIndex) bool {
+    var argument_lines: usize = 0;
+    for (params) |param| {
+        if (tree.nodeTag(param) != .multiline_string_literal) continue;
+        const first, const last = tree.nodeData(param).token_and_token;
+        argument_lines += last - first + 1;
+    }
+    var lines: usize = 0;
+    for (lparen + 1..rparen) |token| {
+        lines += @intFromBool(tree.tokenTag(@intCast(token)) == .multiline_string_literal_line);
+    }
+    return lines == argument_lines;
 }
 
 /// Whether the `*Comma` functions render `maybe_comma` with `space` rather
@@ -2850,6 +2868,10 @@ const Space = enum {
 //   one is split: `foo(a, .{` ... `});`.
 // - `broken`: one element per line.
 //
+// In calls, multiline strings don't prevent `flat` or `hug`: the arguments
+// after one continue on the line after it, and only the lines outside the
+// strings must fit.
+//
 // To know whether a list fits, the enclosing `Unit` is rendered again with
 // every list flat while a `Measure` records where the list starts and ends.
 
@@ -2899,6 +2921,10 @@ const ListInfo = struct {
     can_flat: bool,
     /// Opening token of the last element if the list may be hugged.
     hug: ?Ast.TokenIndex = null,
+    /// Whether multiline strings may be in a flat or hugged list, as in
+    /// `print(` `\\...` `, .{ a });`. Then the lines before and after them
+    /// must fit.
+    around_multiline_strings: bool = false,
 };
 
 fn decideLayout(r: *Render, list: ListInfo) Error!Layout {
@@ -2906,14 +2932,20 @@ fn decideLayout(r: *Render, list: ListInfo) Error!Layout {
     if (!list.can_flat and list.hug == null) return .broken;
     const unit = r.unit orelse return .broken;
 
-    var m: Measure = .{ .target = list.open, .hug = list.hug };
+    var m: Measure = .{
+        .target = list.open,
+        .hug = list.hug,
+        .around_multiline_strings = list.around_multiline_strings,
+    };
     try measureUnit(r, unit, &m);
+    // Lines after a multiline string start where the unit's first line
+    // does, so that columns relative to the unit work for them too.
     const column = r.ais.lineColumn();
-    if (list.can_flat and m.end != null and column + (m.tail_end - m.start) <= r.config.line_width) {
+    if (list.can_flat and m.end != null and column + (@max(m.tail_end, m.widest) - m.start) <= r.config.line_width) {
         return .flat;
     }
     if (m.hug_end) |hug_end| {
-        if (column + (hug_end - m.start) <= r.config.line_width) return .hug;
+        if (column + (@max(hug_end, m.widest) - m.start) <= r.config.line_width) return .hug;
     }
     return .broken;
 }
@@ -2949,14 +2981,20 @@ fn measureUnit(r: *Render, unit: Unit, m: *Measure) Error!void {
 const Measure = struct {
     target: Ast.TokenIndex,
     hug: ?Ast.TokenIndex,
+    around_multiline_strings: bool,
     state: enum { before, inside, after, done } = .before,
+    /// Inside a multiline string of the target, whose line breaks don't end
+    /// the measurement.
+    in_multiline_string: bool = false,
+    /// Widest column reached before a multiline string of the target.
+    widest: usize = 0,
     /// Column before the target's opening token.
     start: usize = 0,
     /// Column after the hugged element's opening token, if on the same line
-    /// as the target's opening token.
+    /// as the target's opening token or only after multiline strings.
     hug_end: ?usize = null,
     /// Column after the target's closing token, if on the same line as its
-    /// opening token.
+    /// opening token or only after multiline strings.
     end: ?usize = null,
     /// Column of the next point where the line could break after the target.
     tail_end: usize = 0,
@@ -2980,7 +3018,18 @@ const Measure = struct {
 
     /// A multiline string starts on a new line.
     fn multilineString(m: *Measure, first_token: Ast.TokenIndex, column: usize) void {
-        if (m.state == .inside and first_token == m.hug) m.hug_end = column;
+        if (m.state != .inside) return;
+        if (first_token == m.hug) {
+            m.hug_end = column;
+        } else if (m.around_multiline_strings) {
+            m.in_multiline_string = true;
+            m.widest = @max(m.widest, column);
+        }
+    }
+
+    /// The line after a multiline string continues the target's line.
+    fn multilineStringEnd(m: *Measure) void {
+        m.in_multiline_string = false;
     }
 
     fn listClosed(m: *Measure, open: Ast.TokenIndex, column: usize) void {
@@ -2992,7 +3041,9 @@ const Measure = struct {
 
     fn lineBreak(m: *Measure, column: usize) void {
         switch (m.state) {
-            .inside => m.state = .done,
+            .inside => if (!m.in_multiline_string) {
+                m.state = .done;
+            },
             .after => {
                 m.tail_end = column;
                 m.state = .done;

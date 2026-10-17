@@ -388,6 +388,71 @@ test "line_width: a last initializer or multiline string argument is hugged" {
     );
 }
 
+test "line_width: multiline strings don't split the arguments around them" {
+    try expectFormat(narrow,
+        \\test {
+        \\  try w.print(
+        \\    \\{d} items
+        \\    \\
+        \\  , .{count});
+        \\  try w.print(
+        \\    \\{d} {d} {d}
+        \\    \\
+        \\  , .{ first_count, second_count, third });
+        \\  foo(a, b,
+        \\    \\x
+        \\  , c);
+        \\}
+        \\
+    ,
+        \\test {
+        \\  try w.print(
+        \\    \\{d} items
+        \\    \\
+        \\  , .{ count });
+        \\  try w.print(
+        \\    \\{d} {d} {d}
+        \\    \\
+        \\  , .{
+        \\    first_count,
+        \\    second_count,
+        \\    third,
+        \\  });
+        \\  foo(a, b,
+        \\    \\x
+        \\  , c);
+        \\}
+        \\
+    );
+}
+
+test "line_width: multiline strings inside an inner list still split it" {
+    try expectFormat(narrow,
+        \\test {
+        \\  try t(&.{
+        \\    \\one
+        \\    ,
+        \\    \\two
+        \\    ,
+        \\  }, "x");
+        \\}
+        \\
+    ,
+        \\test {
+        \\  try t(
+        \\    &.{
+        \\      \\one
+        \\      ,
+        \\      \\two
+        \\      ,
+        \\    },
+        \\    "x",
+        \\  );
+        \\}
+        \\
+    );
+}
+
 test "line_width: parameters, containers, error sets and switch prongs" {
     try expectFormat(narrow,
         \\fn f(alpha: u32, beta: u32, gamma: u32) void {
