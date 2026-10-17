@@ -60,6 +60,18 @@ This applies to call and builtin arguments, function parameters, struct
 and array initializers, container declarations, error sets, `for` inputs
 and `switch` prong items.
 
+Chains of `and`/`or` follow the same rules, with each operand as an
+element. A chain that doesn't fit breaks after every operator before any
+list inside it is split, so conditions stay whole where they can:
+
+```zig
+if (@abs(moving.x + dx - staying.x) <= 1 and
+  @abs(moving.y + dy - staying.y) <= 1) return false;
+```
+
+A mixed chain breaks at its outer operator first: in `a and b or c and d`,
+after `or`.
+
 Container declarations may only be on one line if they contain nothing but
 fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 `union`, or a `struct` with named fields, that is the value of a declaration
@@ -67,9 +79,9 @@ fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 short. Written in place, as in `fn step() struct { x: i16, y: i16 } {`, it
 follows the line width.
 
-Not split yet: long binary expressions (`a and b`), `if`/`else` and
-`catch`/`orelse` bodies, long string literals and comments. Line breaks
-the source has after binary operators, before `.field` and in similar places
+Not split yet: other binary expressions (`a + b`, `a == b`), `if`/`else`
+and `catch`/`orelse` bodies, long string literals and comments. Line breaks
+the source has after those operators, before `.field` and in similar places
 are kept, as in `zig fmt`.
 
 Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
@@ -149,7 +161,7 @@ Every field is optional:
 | `indent_style`        | `.spaces`   | `.spaces` or `.tabs` (one tab per level).                                   |
 | `line_ending`         | `.lf`       | `.lf` or `.crlf`.                                                           |
 | `max_blank_lines`     | `1`         | Longest run of empty lines kept from the source. Never adds new ones.       |
-| `line_width`          | `100`       | Lists that don't fit in this many columns are split.                        |
+| `line_width`          | `100`       | Lists and `and`/`or` chains that don't fit in this many columns are split.  |
 | `trailing_commas`     | `true`      | End split lists with a comma.                                               |
 | `space_inside_braces` | `true`      | `.{ a, b }` rather than `.{a, b}`, for every list in braces. Never next to an element that is a list: `.{.{ 1, 2 }}`. |
 | `range_spacing`       | `.never`    | `.never` (`a..b`), `.always` (`a .. b`), or `.zig_fmt` (spaces only in slices with compound operands). |

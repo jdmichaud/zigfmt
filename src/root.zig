@@ -372,6 +372,59 @@ test "line_width: a list fits if the line fits up to the next list" {
     );
 }
 
+test "line_width: and/or chains break between operands before lists split" {
+    try expectFormat(narrow,
+        \\test {
+        \\  if (abs(a.x - b.x) <= 1 and abs(a.y - b.y) <= 1) return;
+        \\  if (first_condition and second_condition) {
+        \\    x();
+        \\  }
+        \\}
+        \\const ok = alpha and beta or gamma and delta;
+        \\const long = alpha and check(first_argument, second_argument);
+        \\
+    ,
+        \\test {
+        \\  if (abs(a.x - b.x) <= 1 and
+        \\    abs(a.y - b.y) <= 1) return;
+        \\  if (first_condition and
+        \\    second_condition)
+        \\  {
+        \\    x();
+        \\  }
+        \\}
+        \\const ok = alpha and beta or
+        \\  gamma and delta;
+        \\const long = alpha and
+        \\  check(
+        \\    first_argument,
+        \\    second_argument,
+        \\  );
+        \\
+    );
+}
+
+test "line_width: and/or chains follow the source's lines like lists" {
+    try expectFormat(narrow,
+        \\const a = first and
+        \\  second;
+        \\const b = first and second and
+        \\  third and fourth;
+        \\const c = first and // why
+        \\  second;
+        \\
+    ,
+        \\const a = first and second;
+        \\const b = first and
+        \\  second and
+        \\  third and
+        \\  fourth;
+        \\const c = first and // why
+        \\  second;
+        \\
+    );
+}
+
 test "line_width: comments at the end of a line don't count" {
     const input =
         \\test {

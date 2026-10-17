@@ -12,6 +12,8 @@ matching the pushed tag as the release notes.
 - Lists laid out by `line_width` (100 by default) rather than by trailing
   commas in the source; trailing commas added to split lists. Lists of more
   than 3 elements that the source splits across lines stay split.
+- `and`/`or` chains laid out the same way: when one doesn't fit, it breaks
+  after its operators before any list inside it is split.
 - 2-space indentation by default (`zig fmt` uses 4).
 - Options for indentation, line endings, empty lines, spaces inside braces,
   spaces around ranges and import sorting.
