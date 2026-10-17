@@ -28,17 +28,20 @@ const Config = zigfmt.Config;
 
 const configs = [_]Config{
     .default,
+    // zig fmt's indentation, for the line structure check.
+    .{ .indent_width = 4 },
     .{ .trailing_commas = false },
     .{ .space_inside_braces = false, .range_spacing = .always },
     .{ .range_spacing = .zig_fmt },
-    .{ .line_width = 60 },
+    .{ .line_width = 60, .indent_width = 4 },
     .{ .line_width = 40, .indent_style = .tabs },
-    .{ .line_width = 80, .indent_width = 2, .line_ending = .crlf, .trailing_commas = false },
+    .{ .line_width = 80, .indent_width = 4, .line_ending = .crlf, .trailing_commas = false },
     .{ .sort_imports = true },
 };
 
 const unlimited = std.math.maxInt(u16);
-const layout_base: Config = .{ .line_width = unlimited };
+/// `checkLayout` relies on 4 columns per level here.
+const layout_base: Config = .{ .line_width = unlimited, .indent_width = 4 };
 const layout_configs = [_]Config{
     .{ .line_width = unlimited, .indent_width = 2 },
     .{ .line_width = unlimited, .indent_width = 3 },

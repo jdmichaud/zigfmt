@@ -32,8 +32,8 @@ the source was laid out:
 
   ```zig
   try list.append(gpa, .{
-      .name = name,
-      .value = value,
+    .name = name,
+    .value = value,
   });
   ```
 
@@ -56,12 +56,13 @@ Not split yet: long binary expressions (`a and b`), `if`/`else` and
 the source has after binary operators, before `.field` and in similar places
 are kept, as in `zig fmt`.
 
-Also on by default: `.{ x }` with spaces like `.{ a, b }` (`zig fmt` writes
-`.{x}`), `a..b` without spaces in all ranges, and an error for `@import`
-inside functions, tests and `comptime` blocks.
+Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
+spaces like `.{ a, b }` (`zig fmt` writes `.{x}`), `a..b` without spaces in
+all ranges, and an error for `@import` inside functions, tests and
+`comptime` blocks.
 
-`zig fmt` doesn't undo any of this: running it on zigfmt's output (4 spaces,
-trailing commas) keeps every line break and indentation.
+`zig fmt` doesn't undo any of this: with `.indent_width = 4`, running it on
+zigfmt's output keeps every line break and indentation.
 
 ## Installation
 
@@ -110,7 +111,7 @@ Every field is optional:
 
 ```zig
 .{
-    .indent_width = 2,
+    .indent_width = 4,
     .line_width = 120,
     .sort_imports = true,
 }
@@ -118,7 +119,7 @@ Every field is optional:
 
 | Field                 | Default     | Description                                                                 |
 | --------------------- | ----------- | --------------------------------------------------------------------------- |
-| `indent_width`        | `4`         | Columns per indentation level. Ignored with `.tabs`.                        |
+| `indent_width`        | `2`         | Columns per indentation level. Ignored with `.tabs`.                        |
 | `indent_style`        | `.spaces`   | `.spaces` or `.tabs` (one tab per level).                                   |
 | `line_ending`         | `.lf`       | `.lf` or `.crlf`.                                                           |
 | `max_blank_lines`     | `1`         | Longest run of empty lines kept from the source. Never adds new ones.       |
@@ -150,12 +151,13 @@ zig build corpus -Doptimize=ReleaseSafe -- /path/to/zig/lib other/dirs
 import sorting and checks, `.gitignore` matching.
 
 `corpus` formats every `.zig`/`.zon` file under the given directories with
-15 configs and checks that:
+16 configs and checks that:
 
 - the output parses, and formatting it again changes nothing;
 - tokens and comments are identical to `zig fmt`'s output, apart from
   trailing commas;
-- `zig fmt` keeps the line structure of the output;
+- with 4-space indentation, `zig fmt` keeps the line structure of the
+  output;
 - with an unlimited line width, each line is the base output's line with
   converted indentation, empty lines and line endings.
 

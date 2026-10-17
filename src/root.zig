@@ -101,22 +101,31 @@ const sample =
     \\
 ;
 
-test "code without long lines, brace spacing or ranges is formatted like zig fmt" {
+test "with 4-space indentation, code without long lines, brace spacing or ranges is formatted like zig fmt" {
     const gpa = std.testing.allocator;
     var tree: Ast = try .parse(gpa, sample, .{});
     defer tree.deinit(gpa);
     const expected = try tree.renderAlloc(gpa);
     defer gpa.free(expected);
-    try expectFormat(.default, sample, expected);
+    try expectFormat(.{ .indent_width = 4 }, sample, expected);
 }
 
 test "indent_width" {
-    try expectFormat(.{ .indent_width = 2 }, sample,
+    try expectFormat(.default, sample,
         \\const std = @import("std");
         \\pub fn main() void {
         \\  if (true) {
         \\    std.debug.print("hi\n", .{});
         \\  }
+        \\}
+        \\
+    );
+    try expectFormat(.{ .indent_width = 4 }, sample,
+        \\const std = @import("std");
+        \\pub fn main() void {
+        \\    if (true) {
+        \\        std.debug.print("hi\n", .{});
+        \\    }
         \\}
         \\
     );
@@ -139,7 +148,7 @@ test "line_ending crlf" {
         \\    \\string
         \\;
         \\
-    , "// comment\r\nconst s =\r\n    \\\\multiline\r\n    \\\\string\r\n;\r\n");
+    , "// comment\r\nconst s =\r\n  \\\\multiline\r\n  \\\\string\r\n;\r\n");
 }
 
 const blank_lines_sample =
@@ -260,9 +269,9 @@ test "line_width: lists that fit stay on one line" {
     ,
         \\const a = foo(alpha, beta, gamma123456);
         \\const b = foo(
-        \\    alpha,
-        \\    beta,
-        \\    gamma1234567,
+        \\  alpha,
+        \\  beta,
+        \\  gamma1234567,
         \\);
         \\
     );
@@ -271,11 +280,11 @@ test "line_width: lists that fit stay on one line" {
 test "line_width: the source layout and trailing commas are ignored" {
     try expectFormat(narrow,
         \\const p = .{
-        \\    .x = 1,
-        \\    .y = 2,
+        \\  .x = 1,
+        \\  .y = 2,
         \\};
         \\const q = foo(a,
-        \\    b);
+        \\  b);
         \\
     ,
         \\const p = .{ .x = 1, .y = 2 };
@@ -290,8 +299,8 @@ test "line_width: outer lists split first" {
         \\
     ,
         \\const x = outer(
-        \\    inner(alpha, beta),
-        \\    gamma,
+        \\  inner(alpha, beta),
+        \\  gamma,
         \\);
         \\
     );
@@ -303,8 +312,8 @@ test "line_width: a list fits if the line fits up to the next list" {
         \\
     ,
         \\const x = a.first(one, two).second(
-        \\    three,
-        \\    four,
+        \\  three,
+        \\  four,
         \\);
         \\
     );
@@ -313,7 +322,7 @@ test "line_width: a list fits if the line fits up to the next list" {
 test "line_width: comments at the end of a line don't count" {
     const input =
         \\test {
-        \\    foo(alpha, beta, gamma123); // a long comment here
+        \\  foo(alpha, beta, gamma123); // a long comment here
         \\}
         \\
     ;
@@ -323,12 +332,12 @@ test "line_width: comments at the end of a line don't count" {
 test "line_width: comments split lists" {
     try expectFormat(narrow,
         \\const x = foo(a, // why
-        \\    b);
+        \\  b);
         \\
     ,
         \\const x = foo(
-        \\    a, // why
-        \\    b,
+        \\  a, // why
+        \\  b,
         \\);
         \\
     );
@@ -337,43 +346,43 @@ test "line_width: comments split lists" {
 test "line_width: a last initializer or multiline string argument is hugged" {
     try expectFormat(narrow,
         \\test {
-        \\    try list.append(gpa, .{ .a = 1, .b = 2 });
-        \\    try list.append(gpa, .{
-        \\        .a = 1, // one
-        \\    });
-        \\    try expect(alpha, beta,
-        \\        \\text
-        \\    );
+        \\  try list.append(gpa, .{ .a = 1, .b = 2 });
+        \\  try list.append(gpa, .{
+        \\    .a = 1, // one
+        \\  });
+        \\  try expect(alpha, beta,
+        \\    \\text
+        \\  );
         \\}
         \\
     ,
         \\test {
-        \\    try list.append(gpa, .{
-        \\        .a = 1,
-        \\        .b = 2,
-        \\    });
-        \\    try list.append(gpa, .{
-        \\        .a = 1, // one
-        \\    });
-        \\    try expect(alpha, beta,
-        \\        \\text
-        \\    );
+        \\  try list.append(gpa, .{
+        \\    .a = 1,
+        \\    .b = 2,
+        \\  });
+        \\  try list.append(gpa, .{
+        \\    .a = 1, // one
+        \\  });
+        \\  try expect(alpha, beta,
+        \\    \\text
+        \\  );
         \\}
         \\
     );
     // Unless the line up to the opening brace doesn't fit.
     try expectFormat(narrow,
         \\test {
-        \\    try someFunction(alpha_long, beta_long, .{ .a = 1 });
+        \\  try someFunction(alpha_long, beta_long, .{ .a = 1 });
         \\}
         \\
     ,
         \\test {
-        \\    try someFunction(
-        \\        alpha_long,
-        \\        beta_long,
-        \\        .{ .a = 1 },
-        \\    );
+        \\  try someFunction(
+        \\    alpha_long,
+        \\    beta_long,
+        \\    .{ .a = 1 },
+        \\  );
         \\}
         \\
     );
@@ -382,39 +391,39 @@ test "line_width: a last initializer or multiline string argument is hugged" {
 test "line_width: parameters, containers, error sets and switch prongs" {
     try expectFormat(narrow,
         \\fn f(alpha: u32, beta: u32, gamma: u32) void {
-        \\    switch (x) {
-        \\        .alpha, .beta, .gamma, .delta, .epsilon => {},
-        \\        else => {},
-        \\    }
+        \\  switch (x) {
+        \\    .alpha, .beta, .gamma, .delta, .epsilon => {},
+        \\    else => {},
+        \\  }
         \\}
         \\const S = struct { alpha: u32, beta: u32, gamma: u32 };
         \\const E = error{ AlphaError, BetaError, Gamma };
         \\
     ,
         \\fn f(
-        \\    alpha: u32,
-        \\    beta: u32,
-        \\    gamma: u32,
+        \\  alpha: u32,
+        \\  beta: u32,
+        \\  gamma: u32,
         \\) void {
-        \\    switch (x) {
-        \\        .alpha,
-        \\        .beta,
-        \\        .gamma,
-        \\        .delta,
-        \\        .epsilon,
-        \\        => {},
-        \\        else => {},
-        \\    }
+        \\  switch (x) {
+        \\    .alpha,
+        \\    .beta,
+        \\    .gamma,
+        \\    .delta,
+        \\    .epsilon,
+        \\    => {},
+        \\    else => {},
+        \\  }
         \\}
         \\const S = struct {
-        \\    alpha: u32,
-        \\    beta: u32,
-        \\    gamma: u32,
+        \\  alpha: u32,
+        \\  beta: u32,
+        \\  gamma: u32,
         \\};
         \\const E = error{
-        \\    AlphaError,
-        \\    BetaError,
-        \\    Gamma,
+        \\  AlphaError,
+        \\  BetaError,
+        \\  Gamma,
         \\};
         \\
     );
@@ -423,22 +432,22 @@ test "line_width: parameters, containers, error sets and switch prongs" {
 test "line_width: arrays laid out in rows keep their rows" {
     try expectFormat(narrow,
         \\const m = .{
-        \\    1, 0,
-        \\    0, 1,
+        \\  1, 0,
+        \\  0, 1,
         \\};
         \\const l = .{ 100000, 200000, 300000, 400000, 500000 };
         \\
     ,
         \\const m = .{
-        \\    1, 0,
-        \\    0, 1,
+        \\  1, 0,
+        \\  0, 1,
         \\};
         \\const l = .{
-        \\    100000,
-        \\    200000,
-        \\    300000,
-        \\    400000,
-        \\    500000,
+        \\  100000,
+        \\  200000,
+        \\  300000,
+        \\  400000,
+        \\  500000,
         \\};
         \\
     );
@@ -457,22 +466,22 @@ test "structs with named fields and unions are never on one line" {
         \\
     ,
         \\const S = struct {
-        \\    a: u32,
+        \\  a: u32,
         \\};
         \\const U = union(enum) {
-        \\    int: i64,
-        \\    none,
+        \\  int: i64,
+        \\  none,
         \\};
         \\const E = enum { red, green };
         \\const P = struct { u32, u32 };
         \\const Empty = struct {};
         \\const L = std.MultiArrayList(struct {
-        \\    a: u32,
-        \\    b: u32,
+        \\  a: u32,
+        \\  b: u32,
         \\});
         \\const M = std.EnumArray(enum { a, b }, u32);
         \\const T = foo(0, [_]struct {
-        \\    a: u8,
+        \\  a: u8,
         \\}{ .{ .a = 1 } });
         \\
     );
@@ -484,23 +493,23 @@ test "trailing_commas" {
         \\
     ,
         \\const x = foo(
-        \\    alpha_long,
-        \\    beta_long,
-        \\    gamma
+        \\  alpha_long,
+        \\  beta_long,
+        \\  gamma
         \\);
         \\
     );
     // A multiline string ending a split list gets its comma on the next line.
     try expectFormat(narrow,
         \\const x = .{ alpha_long_name,
-        \\    \\text
+        \\  \\text
         \\};
         \\
     ,
         \\const x = .{
-        \\    alpha_long_name,
-        \\    \\text
-        \\    ,
+        \\  alpha_long_name,
+        \\  \\text
+        \\  ,
         \\};
         \\
     );
@@ -541,11 +550,11 @@ test "range_spacing" {
         \\const a = s[i + 1 .. n];
         \\const b = s[0..];
         \\fn f() void {
-        \\    for (0..n) |_| {}
-        \\    switch (c) {
-        \\        0...9 => {},
-        \\        else => {},
-        \\    }
+        \\  for (0..n) |_| {}
+        \\  switch (c) {
+        \\    0...9 => {},
+        \\    else => {},
+        \\  }
         \\}
         \\
     ;
@@ -553,11 +562,11 @@ test "range_spacing" {
         \\const a = s[i + 1..n];
         \\const b = s[0..];
         \\fn f() void {
-        \\    for (0..n) |_| {}
-        \\    switch (c) {
-        \\        0...9 => {},
-        \\        else => {},
-        \\    }
+        \\  for (0..n) |_| {}
+        \\  switch (c) {
+        \\    0...9 => {},
+        \\    else => {},
+        \\  }
         \\}
         \\
     );
@@ -565,11 +574,11 @@ test "range_spacing" {
         \\const a = s[i + 1 .. n];
         \\const b = s[0 ..];
         \\fn f() void {
-        \\    for (0 .. n) |_| {}
-        \\    switch (c) {
-        \\        0 ... 9 => {},
-        \\        else => {},
-        \\    }
+        \\  for (0 .. n) |_| {}
+        \\  switch (c) {
+        \\    0 ... 9 => {},
+        \\    else => {},
+        \\  }
         \\}
         \\
     );

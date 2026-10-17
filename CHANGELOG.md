@@ -11,6 +11,7 @@ matching the pushed tag as the release notes.
   project root, and by command line options.
 - Lists laid out by `line_width` (100 by default) rather than by trailing
   commas in the source; trailing commas added to split lists.
+- 2-space indentation by default (`zig fmt` uses 4).
 - Options for indentation, line endings, empty lines, spaces inside braces,
   spaces around ranges and import sorting.
 - An error for `@import` inside functions, tests and `comptime` blocks.

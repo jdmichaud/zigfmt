@@ -3,7 +3,7 @@
 //! On disk this is a `.zigfmt.zon` file. Every field is optional:
 //!
 //!     .{
-//!         .indent_width = 2,
+//!         .indent_width = 4,
 //!         .line_width = 120,
 //!         .sort_imports = true,
 //!     }
@@ -15,7 +15,7 @@ const Config = @This();
 
 /// Columns per indentation level. Ignored with `.tabs`, where every level
 /// is one tab.
-indent_width: u8 = 4,
+indent_width: u8 = 2,
 indent_style: IndentStyle = .spaces,
 line_ending: LineEnding = .lf,
 /// Maximum number of consecutive empty lines kept from the source.
