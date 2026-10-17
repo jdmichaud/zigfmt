@@ -36,8 +36,8 @@ measure: ?*Measure = null,
 /// `canContainerBeFlat`.
 decl_value: Ast.Node.OptionalIndex = .none,
 /// The chains that are not on one line, identified by the operator of their
-/// outermost node, and the `if`, `while` and `for` that break before their
-/// body, identified by their keyword (always `.broken`). Shared with the
+/// outermost node, and the `if`, `while`, `for` and `catch` that break
+/// before their body, identified by their keyword (always `.broken`). Shared with the
 /// renders that measure, so that they break these lines too.
 breaks: *std.AutoHashMapUnmanaged(Ast.TokenIndex, ChainLayout),
 /// Set while rendering the left operand of a chain, which continues it.
@@ -477,7 +477,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const fallback_first = tree.firstToken(rhs);
 
             const seperate_line = !tree.tokensOnSameLine(main_token, fallback_first) or
-                tree.tokenTag(fallback_first) == .multiline_string_literal_line;
+                tree.tokenTag(fallback_first) == .multiline_string_literal_line or
+                try breaksAfterCatch(r, node);
             const after_op_space: Space = if (seperate_line) .newline else .space;
 
             try renderExpression(r, lhs, .space); // target
@@ -492,6 +493,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 assert(tree.tokenTag(fallback_first - 1) == .keyword_catch);
                 try renderToken(r, main_token, after_op_space); // catch keyword
             }
+            if (!seperate_line and !startsWithBrace(tree, rhs)) if (r.measure) |m| m.breakPoint(ais.column - 1);
             try renderExpression(r, rhs, space); // fallback
             ais.popIndent();
         },
@@ -595,7 +597,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .sub,
         .sub_wrap,
         .sub_sat,
-        .@"orelse",
         => {
             const lhs, const rhs = tree.nodeData(node).node_and_node;
             try renderExpression(r, lhs, .space);
@@ -608,7 +609,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             ais.popIndent();
         },
 
-        .bool_and, .bool_or => try renderChain(r, node, space),
+        .bool_and, .bool_or, .@"orelse" => try renderChain(r, node, space),
 
         .assign_destructure => {
             const full = tree.assignDestructure(node);
@@ -2187,7 +2188,7 @@ fn renderStructInit(
 
             const field_space: Space = if (i + 1 == struct_init.ast.fields.len) r.lastElementSpace() else .comma;
             const prev_unit = r.enterUnit(.{ .kind = .expression, .node = field_init, .space = field_space });
-            defer r.unit = prev_unit;
+            defer r.leaveUnit(prev_unit);
             try ais.pushSpace(.comma);
             try renderExpressionFixup(r, field_init, field_space);
             ais.popSpace();
@@ -2749,7 +2750,7 @@ fn renderParamList(
         for (params, 0..) |param_node, i| {
             if (i + 1 < params.len) {
                 const prev_unit = r.enterUnit(.{ .kind = .expression, .node = param_node, .space = .comma });
-                defer r.unit = prev_unit;
+                defer r.leaveUnit(prev_unit);
                 try renderExpression(r, param_node, .none);
 
                 const comma = tree.lastToken(param_node) + 1;
@@ -2930,15 +2931,26 @@ fn renderUnit(r: *Render, unit: Unit) Error!void {
 /// Renders `unit`, measuring the lists inside it against it.
 fn renderLine(r: *Render, unit: Unit) Error!void {
     const prev = r.enterUnit(unit);
-    defer r.unit = prev;
+    defer r.leaveUnit(prev);
     try renderUnit(r, unit);
 }
 
-/// For units rendered in several steps. Returns the unit to restore.
-fn enterUnit(r: *Render, unit: Unit) ?Unit {
-    const prev = r.unit;
+const SavedUnit = struct { unit: ?Unit, flat: u32 };
+
+/// For units rendered in several steps. Returns what `leaveUnit` restores.
+fn enterUnit(r: *Render, unit: Unit) SavedUnit {
+    const saved: SavedUnit = .{ .unit = r.unit, .flat = r.flat };
     r.unit = unit;
-    return prev;
+    // A unit starts its own line, such as a statement in the block of a
+    // chain that fits up to `orelse {`: what is around it being flat doesn't
+    // make it flat. In renders that measure, everything stays flat.
+    if (r.measure == null) r.flat = 0;
+    return saved;
+}
+
+fn leaveUnit(r: *Render, saved: SavedUnit) void {
+    r.unit = saved.unit;
+    r.flat = saved.flat;
 }
 
 const ListInfo = struct {
@@ -2978,11 +2990,12 @@ fn decideLayout(r: *Render, list: ListInfo) Error!Layout {
     return .broken;
 }
 
-/// Renders an `and`/`or` chain such as `a and b and c`, a left-nested
-/// series of nodes with the same tag. When it doesn't fit, it breaks after
-/// every operator, before any list inside it is split, so that operands stay
-/// on one line where they can. Mixed chains break at the outer operator
-/// first: in `a and b or c`, at `or`.
+/// Renders an `and`, `or` or `orelse` chain such as `a and b and c`, a
+/// left-nested series of nodes with the same tag. When it doesn't fit, it
+/// breaks after every operator, before any list inside it is split, so that
+/// operands stay on one line where they can. Mixed chains break at the outer
+/// operator first: in `a and b or c`, at `or`. Blocks and `switch`es stay on
+/// the operator's line: `x orelse {`.
 fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
@@ -3009,10 +3022,14 @@ fn renderChain(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
     const rhs_seperate_line = switch (chain.layout) {
         .flat => false,
         .rows => sourceLineBetween(tree, op_token, op_token + 1),
-        .broken => true,
+        .broken => !startsWithBrace(tree, rhs),
     } or tree.tokenTag(op_token + 1) == .multiline_string_literal_line;
     if (r.measure) |m| {
-        if (rhs_seperate_line) m.rowBreak(chain.op_token) else m.breakPoint(ais.lineColumn() + tree.tokenSlice(op_token).len);
+        if (rhs_seperate_line) {
+            m.rowBreak(chain.op_token);
+        } else if (!startsWithBrace(tree, rhs)) {
+            m.breakPoint(ais.lineColumn() + tree.tokenSlice(op_token).len);
+        }
     }
     try renderToken(r, op_token, if (rhs_seperate_line) .newline else .space);
     try renderExpression(r, rhs, space);
@@ -3064,6 +3081,38 @@ fn decideChainLayout(r: *Render, node: Ast.Node.Index) Error!ChainLayout {
     };
     if (layout != .flat) try r.breaks.put(r.gpa, op_token, layout);
     return layout;
+}
+
+/// Whether `a catch |err| b` breaks after `|err|` because the line doesn't
+/// fit, before anything in `a` or `b` is split. Never before a block or a
+/// `switch`.
+fn breaksAfterCatch(r: *Render, node: Ast.Node.Index) Error!bool {
+    const tree = r.tree;
+    const catch_token = tree.nodeMainToken(node);
+    if (r.measure) |m| m.spanStart(catch_token, r.ais.lineColumn());
+    if (r.breaks.contains(catch_token)) return true;
+    _, const rhs = tree.nodeData(node).node_and_node;
+    if (r.flat > 0 or startsWithBrace(tree, rhs)) return false;
+    const unit = r.unit orelse return false;
+
+    var m: Measure = .{
+        .target = catch_token,
+        .last = tree.lastToken(node),
+        .hug = null,
+        .around_multiline_strings = false,
+    };
+    try measureUnit(r, unit, &m);
+    if (m.end != null and r.ais.lineColumn() + (m.tail_end - m.start) <= r.config.line_width) return false;
+    try r.breaks.put(r.gpa, catch_token, .broken);
+    return true;
+}
+
+/// Whether the expression starts with a brace that ends its line.
+fn startsWithBrace(tree: Ast, node: Ast.Node.Index) bool {
+    return nodeIsBlock(tree.nodeTag(node)) or switch (tree.nodeTag(node)) {
+        .@"switch", .switch_comma => true,
+        else => false,
+    };
 }
 
 /// Decides whether an `if`, `while` or `for` whose body is not a block
@@ -3137,7 +3186,8 @@ fn measureUnit(r: *Render, unit: Unit, m: *Measure) Error!void {
 /// Records where one list (the target) starts and ends while its unit is
 /// rendered flat. Columns are relative to the start of the unit.
 const Measure = struct {
-    /// Opening token of a list, or operator of a chain.
+    /// Opening token of a list, operator of a chain or `catch`, keyword of
+    /// an `if`, `while` or `for`.
     target: Ast.TokenIndex,
     /// Last token of a target that is not a list.
     last: ?Ast.TokenIndex = null,

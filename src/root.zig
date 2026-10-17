@@ -480,6 +480,49 @@ test "line_width: if, while and for break before a body that doesn't fit" {
     try expectFormat(narrow, blocks, blocks);
 }
 
+test "line_width: catch and orelse break before their fallback" {
+    try expectFormat(narrow,
+        \\test {
+        \\  const v = parse(text) catch |err| return fail(err);
+        \\  const value = map.get(key) orelse return error.Missing;
+        \\}
+        \\
+    ,
+        \\test {
+        \\  const v = parse(text) catch |err|
+        \\    return fail(err);
+        \\  const value = map.get(key) orelse
+        \\    return error.Missing;
+        \\}
+        \\
+    );
+    // Never before a block or a switch.
+    try expectFormat(narrow,
+        \\test {
+        \\  const other = map.get(key) orelse {
+        \\    return error.Missing;
+        \\  };
+        \\  const s = parse(text, options) catch |err| switch (err) {
+        \\    else => {},
+        \\  };
+        \\}
+        \\
+    ,
+        \\test {
+        \\  const other = map.get(key) orelse {
+        \\    return error.Missing;
+        \\  };
+        \\  const s = parse(
+        \\    text,
+        \\    options,
+        \\  ) catch |err| switch (err) {
+        \\    else => {},
+        \\  };
+        \\}
+        \\
+    );
+}
+
 test "line_width: comments at the end of a line don't count" {
     const input =
         \\test {

@@ -17,6 +17,8 @@ matching the pushed tag as the release notes.
   every line fits.
 - `if`, `while` and `for` with a body that isn't a block break before the
   body when the line doesn't fit, before their condition is split.
+- `catch` and `orelse` break before their fallback when the line doesn't
+  fit, except before a block or a `switch`.
 - 2-space indentation by default (`zig fmt` uses 4).
 - Options for indentation, line endings, empty lines, spaces inside braces,
   spaces around ranges and import sorting.

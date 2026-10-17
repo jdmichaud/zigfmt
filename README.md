@@ -84,6 +84,15 @@ else
   0;
 ```
 
+`catch` and `orelse` break before their fallback when the line doesn't fit,
+before anything else on it is split, but never before a block or a
+`switch`:
+
+```zig
+var options = cli.fromArgs(args, &diagnostic) catch |err|
+  return fail(io, err, diagnostic);
+```
+
 Container declarations may only be on one line if they contain nothing but
 fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 `union`, or a `struct` with named fields, that is the value of a declaration
@@ -91,10 +100,9 @@ fields, without comments: `enum { red, green }`, `struct { u32, u32 }`. A
 short. Written in place, as in `fn step() struct { x: i16, y: i16 } {`, it
 follows the line width.
 
-Not split yet: other binary expressions (`a + b`, `a == b`),
-`catch`/`orelse` bodies, long string literals and comments. Line breaks
-the source has after those operators, before `.field` and in similar places
-are kept, as in `zig fmt`.
+Not split yet: other binary expressions (`a + b`, `a == b`), long string
+literals and comments. Line breaks the source has after those operators,
+before `.field` and in similar places are kept, as in `zig fmt`.
 
 Also on by default: 2-space indentation (`zig fmt` uses 4), `.{ x }` with
 spaces like `.{ a, b }` (`zig fmt` writes `.{x}`) but none next to an
