@@ -23,7 +23,7 @@ const cli: clap.ArgDescriptor = .{
     \\and what .gitignore files ignore. Files named on the command line are
     \\always formatted.
     \\
-    \\Each file uses the nearest .zigfmt.zon found in its directory or the
+    \\Each file uses the nearest zigfmt.zon found in its directory or the
     \\directories above it, up to the project root (the first directory with a
     \\build.zig.zon or build.zig). Standard input uses the current directory.
     \\The options from --indent-width on override config files.

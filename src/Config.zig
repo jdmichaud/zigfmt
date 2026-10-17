@@ -1,6 +1,6 @@
 //! Formatting options.
 //!
-//! On disk this is a `.zigfmt.zon` file. Every field is optional:
+//! On disk this is a `zigfmt.zon` file. Every field is optional:
 //!
 //!     .{
 //!         .indent_width = 4,
@@ -53,7 +53,7 @@ pub const NestedImports = enum { allow, forbid };
 pub const default: Config = .{};
 
 /// Name of the config file the CLI looks for.
-pub const file_name = ".zigfmt.zon";
+pub const file_name = "zigfmt.zon";
 
 /// Returns a description of the first invalid setting, or null.
 pub fn check(config: Config) ?[]const u8 {
@@ -62,7 +62,7 @@ pub fn check(config: Config) ?[]const u8 {
     return null;
 }
 
-/// Parses the contents of a `.zigfmt.zon` file. Omitted fields keep their
+/// Parses the contents of a `zigfmt.zon` file. Omitted fields keep their
 /// defaults and unknown fields are an error. The result is not validated;
 /// see `check`.
 pub fn parseZon(

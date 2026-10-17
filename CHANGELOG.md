@@ -6,7 +6,7 @@ matching the pushed tag as the release notes.
 ## [Unreleased]
 
 ### Added
-- Formatter based on Zig 0.17.0's `zig fmt`, configured by `.zigfmt.zon`
+- Formatter based on Zig 0.17.0's `zig fmt`, configured by `zigfmt.zon`
   files found next to each file or in its parent directories, up to the
   project root, and by command line options.
 - Lists laid out by `line_width` (100 by default) rather than by trailing

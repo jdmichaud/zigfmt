@@ -100,7 +100,7 @@ The exit code is 1 if a file has syntax errors or fails a check, or with
 
 ## Configuration
 
-Each file uses the nearest `.zigfmt.zon` in its directory or the
+Each file uses the nearest `zigfmt.zon` in its directory or the
 directories above it, stopping at the project root: the first directory
 with a `build.zig.zon` or `build.zig`. Standard input uses the current
 directory. `--config <path>` uses one file for everything; `--no-config`
